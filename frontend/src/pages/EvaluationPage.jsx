@@ -12,6 +12,14 @@ export function EvaluationPage({ remote, runTask }) {
     () => remote.querySets.find((item) => String(item.id) === String(querySetId)),
     [remote.querySets, querySetId],
   );
+  const runnableWorkflows = useMemo(
+    () => remote.workflows.filter((workflow) => {
+      const templateId = workflow.graph?.templateId;
+      const types = new Set((workflow.graph?.nodes || []).map((node) => node.type));
+      return templateId === 'rag' || (!templateId && types.has('source') && types.has('retrieve'));
+    }),
+    [remote.workflows],
+  );
 
   function dbName(id) {
     return remote.knowledgeBases.find((db) => String(db.id) === String(id))?.name || `DB #${id}`;
@@ -47,7 +55,7 @@ export function EvaluationPage({ remote, runTask }) {
         <Field label="Workflow">
           <select value={workflowId} onChange={(event) => setWorkflowId(event.target.value)}>
             <option value="">选择 Workflow</option>
-            {remote.workflows.map((workflow) => (
+            {runnableWorkflows.map((workflow) => (
               <option key={workflow.id} value={workflow.id}>{workflow.name}</option>
             ))}
           </select>

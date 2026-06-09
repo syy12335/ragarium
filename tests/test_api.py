@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from rag_eval.api import create_app
 from rag_eval.query_generation import QueryGenerationService
 from rag_eval.storage import ProductStore
-from rag_eval.workflow import DEFAULT_WORKFLOW_GRAPH, WorkflowEngine
+from rag_eval.workflow import DEFAULT_WORKFLOW_GRAPH, WorkflowEngine, get_default_workflow_graph
 
 
 def graph_with_source_db(kb_id: int):
@@ -16,6 +16,19 @@ def graph_with_source_db(kb_id: int):
     for node in graph["nodes"]:
         if node["type"] == "source":
             node["data"]["knowledgeBaseId"] = str(kb_id)
+    return graph
+
+
+def template_graph(template_id: str, kb_id: int):
+    graph = get_default_workflow_graph(template_id)
+    for node in graph["nodes"]:
+        if node["type"] == "source":
+            node["data"]["knowledgeBaseId"] = str(kb_id)
+        if node["type"] == "retrieve" and template_id == "rag":
+            node["data"]["knowledgeBaseId"] = str(kb_id)
+        if node["type"] == "query_generate":
+            node["data"]["knowledgeBaseId"] = str(kb_id)
+            node["data"]["targetCount"] = 3
     return graph
 
 
@@ -188,3 +201,58 @@ def test_api_import_index_generate_and_eval(tmp_path):
     )
     assert eval_response.status_code == 200
     assert eval_response.json()["status"] == "completed"
+
+    templates_response = client.get("/api/workflows/templates")
+    assert templates_response.status_code == 200
+    assert {item["id"] for item in templates_response.json()} == {"offline_db", "rag", "evaluation"}
+
+    default_rag_response = client.get("/api/workflows/default?template_id=rag")
+    assert default_rag_response.status_code == 200
+    assert default_rag_response.json()["graph"]["templateId"] == "rag"
+
+    offline_workflow_response = client.post(
+        "/api/workflows",
+        json={"name": "Offline DB", "graph": template_graph("offline_db", kb_id)},
+    )
+    assert offline_workflow_response.status_code == 200
+    offline_workflow_id = offline_workflow_response.json()["id"]
+    offline_prepare_response = client.post(f"/api/workflows/{offline_workflow_id}/prepare")
+    assert offline_prepare_response.status_code == 200
+    assert offline_prepare_response.json()["knowledge_base_id"] == kb_id
+
+    rag_workflow_response = client.post(
+        "/api/workflows",
+        json={"name": "Runtime RAG", "graph": template_graph("rag", kb_id)},
+    )
+    assert rag_workflow_response.status_code == 200
+    rag_workflow_id = rag_workflow_response.json()["id"]
+    rag_run_response = client.post(
+        f"/api/workflows/{rag_workflow_id}/run",
+        json={"question": "How does RAG work?"},
+    )
+    assert rag_run_response.status_code == 200
+    assert "fake answer" in rag_run_response.json()["answer"]
+
+    evaluation_workflow_response = client.post(
+        "/api/workflows",
+        json={"name": "Evaluation Workflow", "graph": template_graph("evaluation", kb_id)},
+    )
+    assert evaluation_workflow_response.status_code == 200
+    evaluation_workflow = evaluation_workflow_response.json()
+    node_run_response = client.post(
+        f"/api/workflows/{evaluation_workflow['id']}/nodes/query_generate/run",
+    )
+    assert node_run_response.status_code == 200
+    assert node_run_response.json()["query_set"]["target_count"] == 3
+
+    workflow_eval_response = client.post(f"/api/workflows/{evaluation_workflow['id']}/evaluate")
+    assert workflow_eval_response.status_code == 200
+    workflow_eval = workflow_eval_response.json()
+    assert workflow_eval["query_set"]["target_count"] == 3
+    assert workflow_eval["eval_run"]["status"] == "completed"
+
+    runtime_workflows_after_templates = client.get("/api/runtime/workflows").json()["output"]["workflows"]
+    runtime_ids = {item["workflow_id"] for item in runtime_workflows_after_templates}
+    assert rag_workflow_id in runtime_ids
+    assert offline_workflow_id not in runtime_ids
+    assert evaluation_workflow["id"] not in runtime_ids

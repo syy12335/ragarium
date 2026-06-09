@@ -648,11 +648,66 @@ select:focus {
   line-height: 1.45;
 }
 
+.workflow-page {
+  display: grid;
+  gap: 16px;
+}
+
+.template-panel {
+  padding-bottom: 14px;
+}
+
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.template-card {
+  display: grid;
+  gap: 6px;
+  min-height: 96px;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+  color: #263445;
+  text-align: left;
+  cursor: pointer;
+}
+
+.template-card:hover,
+.template-card.active {
+  border-color: #2563a6;
+  background: #f3f8fc;
+}
+
+.template-card strong,
+.template-card span,
+.template-card small {
+  display: block;
+  min-width: 0;
+}
+
+.template-card span {
+  color: #5f6f82;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.template-card small {
+  overflow: hidden;
+  color: #7b8796;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .workflow-layout {
   display: grid;
   grid-template-columns: 230px minmax(520px, 1fr) 390px;
   gap: 16px;
-  min-height: calc(100vh - 116px);
+  min-height: calc(100vh - 250px);
 }
 
 .node-library,
@@ -727,8 +782,13 @@ select:focus {
   border-left-color: #7c4d9e;
 }
 
-.flow-node-answer {
+.flow-node-answer,
+.flow-node-query_generate {
   border-left-color: #2d7d78;
+}
+
+.flow-node-ragas_eval {
+  border-left-color: #b45309;
 }
 
 .react-flow__handle {
@@ -835,6 +895,10 @@ select:focus {
   font-size: 13px;
 }
 
+.query-result {
+  align-items: start;
+}
+
 pre {
   max-width: 100%;
   margin: 2px 0 0;
@@ -904,7 +968,8 @@ pre {
   .db-summary,
   .runtime-card,
   .endpoint-list,
-  .provider-grid {
+  .provider-grid,
+  .template-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -931,7 +996,8 @@ pre {
   .launch-grid,
   .runtime-card,
   .endpoint-list,
-  .db-summary {
+  .db-summary,
+  .template-grid {
     grid-template-columns: 1fr;
   }
 

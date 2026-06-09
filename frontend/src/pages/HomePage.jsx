@@ -20,7 +20,7 @@ const moduleCards = [
   {
     id: 'workflow',
     title: 'Workflow',
-    body: '配置 RAG pipeline 画布并运行问答',
+    body: '三个可执行模板：离线 DB、RAG、评测',
     icon: GitBranch,
   },
   {
@@ -53,8 +53,15 @@ export function HomePage({ remote, onNavigate }) {
   const callableWorkflows = useMemo(
     () => remote.workflows.filter((workflow) => {
       try {
+        const templateId = workflow.graph.templateId;
+        const types = new Set((workflow.graph.nodes || []).map((node) => node.type));
+        const isRuntimeWorkflow = templateId === 'rag' || (!templateId && types.has('source') && types.has('retrieve'));
+        if (!isRuntimeWorkflow) {
+          return false;
+        }
+        const retrieveNode = workflow.graph.nodes.find((node) => node.type === 'retrieve');
         const sourceNode = workflow.graph.nodes.find((node) => node.type === 'source');
-        const kbId = sourceNode?.data?.knowledgeBaseId;
+        const kbId = retrieveNode?.data?.knowledgeBaseId || sourceNode?.data?.knowledgeBaseId;
         const kb = remote.knowledgeBases.find((item) => String(item.id) === String(kbId));
         return kb?.index_status === 'ready';
       } catch {

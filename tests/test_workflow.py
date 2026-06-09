@@ -4,13 +4,29 @@ from copy import deepcopy
 
 import pytest
 
-from rag_eval.workflow import DEFAULT_WORKFLOW_GRAPH, WorkflowEngine, WorkflowValidationError
+from rag_eval.workflow import (
+    DEFAULT_WORKFLOW_GRAPH,
+    WorkflowEngine,
+    WorkflowValidationError,
+    get_default_workflow_graph,
+    get_workflow_templates,
+)
 
 
 def graph_with_source_db(kb_id: str = "7"):
     graph = deepcopy(DEFAULT_WORKFLOW_GRAPH)
     for node in graph["nodes"]:
         if node["type"] == "source":
+            node["data"]["knowledgeBaseId"] = kb_id
+    return graph
+
+
+def configured_template_graph(template_id: str, kb_id: str = "7"):
+    graph = get_default_workflow_graph(template_id)
+    for node in graph["nodes"]:
+        if node["type"] in {"source", "query_generate"}:
+            node["data"]["knowledgeBaseId"] = kb_id
+        if node["type"] == "retrieve" and template_id == "rag":
             node["data"]["knowledgeBaseId"] = kb_id
     return graph
 
@@ -81,3 +97,42 @@ def test_retrieve_inherits_source_db_when_empty():
     graph = graph_with_source_db("11")
 
     assert WorkflowEngine().resolve_knowledge_base_id(graph) == 11
+
+
+def test_all_workflow_templates_validate_after_required_db_is_selected():
+    engine = WorkflowEngine()
+
+    for template in get_workflow_templates():
+        graph = configured_template_graph(template["id"])
+        result = engine.validate_graph(graph)
+        assert result.template_id == template["id"]
+
+
+def test_rag_template_requires_retrieve_db():
+    graph = get_default_workflow_graph("rag")
+
+    with pytest.raises(WorkflowValidationError, match="Retrieve node must select"):
+        WorkflowEngine().validate_graph(graph)
+
+
+def test_evaluation_template_validates_query_generate_examples():
+    graph = configured_template_graph("evaluation")
+    for node in graph["nodes"]:
+        if node["type"] == "query_generate":
+            node["data"]["examples"] = ["一个问题", "两个问题"]
+
+    with pytest.raises(WorkflowValidationError, match="3 to 5"):
+        WorkflowEngine().validate_graph(graph)
+
+
+def test_evaluation_template_retrieve_inherits_or_overrides_query_generate_db():
+    graph = configured_template_graph("evaluation", "21")
+    engine = WorkflowEngine()
+
+    assert engine.resolve_knowledge_base_id(graph) == 21
+
+    for node in graph["nodes"]:
+        if node["type"] == "retrieve":
+            node["data"]["knowledgeBaseId"] = "42"
+
+    assert engine.resolve_knowledge_base_id(graph) == 42

@@ -14,7 +14,16 @@ from rag_eval.ingestion import IngestionService
 from rag_eval.query_generation import QueryGenerationService
 from rag_eval.storage import ProductStore
 from rag_eval.vector.vector_builder import VectorDatabaseBuilder
-from rag_eval.workflow import DEFAULT_WORKFLOW_GRAPH, WorkflowEngine, WorkflowValidationError
+from rag_eval.workflow import (
+    DEFAULT_TEMPLATE_ID,
+    EVALUATION_TEMPLATE_ID,
+    LEGACY_FULL_RAG_TEMPLATE_ID,
+    RAG_TEMPLATE_ID,
+    WorkflowEngine,
+    WorkflowValidationError,
+    get_default_workflow_graph,
+    get_workflow_templates,
+)
 
 
 class CreateKnowledgeBaseRequest(BaseModel):
@@ -197,17 +206,13 @@ def create_app(
 
     def runtime_top_k(graph: Dict[str, Any]) -> int:
         validation = workflow_engine.validate_graph(graph)
-        retrieve_data = validation.nodes_by_type["retrieve"].get("data") or {}
-        raw_top_k = retrieve_data.get("topK") or retrieve_data.get("k") or 3
-        try:
-            return int(raw_top_k)
-        except (TypeError, ValueError):
-            raise WorkflowValidationError("retrieve.topK must be an integer")
+        return workflow_engine.get_top_k_from_validation(validation)
 
     def runtime_workflow_item(workflow: Dict[str, Any]) -> Dict[str, Any]:
         item: Dict[str, Any] = {
             "workflow_id": workflow["id"],
             "name": workflow["name"],
+            "template_id": None,
             "updated_at": workflow.get("updated_at"),
             "knowledge_base_id": None,
             "knowledge_base_name": None,
@@ -218,6 +223,10 @@ def create_app(
             "error": None,
         }
         try:
+            validation = workflow_engine.validate_graph(workflow["graph"])
+            item["template_id"] = validation.template_id
+            if validation.template_id not in {RAG_TEMPLATE_ID, LEGACY_FULL_RAG_TEMPLATE_ID}:
+                raise WorkflowValidationError("Workflow is not a runtime RAG template")
             kb_id = workflow_engine.resolve_knowledge_base_id(workflow["graph"])
             kb = store.get_knowledge_base(kb_id)
             item.update(
@@ -254,6 +263,15 @@ def create_app(
             }
 
         try:
+            validation = workflow_engine.validate_graph(workflow["graph"])
+            if validation.template_id not in {RAG_TEMPLATE_ID, LEGACY_FULL_RAG_TEMPLATE_ID}:
+                return {
+                    "error": _runtime_error(
+                        "workflow_not_callable",
+                        "Runtime API 只支持 RAG Workflow",
+                        {"workflow_id": workflow_id, "template_id": validation.template_id},
+                    )
+                }
             kb_id = workflow_engine.resolve_knowledge_base_id(workflow["graph"])
             kb = store.get_knowledge_base(kb_id)
             top_k = runtime_top_k(workflow["graph"])
@@ -365,7 +383,14 @@ def create_app(
 
     @app.get("/api/runtime/workflows")
     def runtime_workflows() -> Dict[str, Any]:
-        workflows = [runtime_workflow_item(workflow) for workflow in store.list_workflows()]
+        workflows = []
+        for workflow in store.list_workflows():
+            try:
+                validation = workflow_engine.validate_graph(workflow["graph"])
+            except Exception:
+                continue
+            if validation.template_id in {RAG_TEMPLATE_ID, LEGACY_FULL_RAG_TEMPLATE_ID}:
+                workflows.append(runtime_workflow_item(workflow))
         return _runtime_success(
             {"workflows": workflows},
             {"count": len(workflows)},
@@ -587,9 +612,65 @@ def create_app(
         except Exception as exc:
             raise _http_error(exc)
 
+    def run_query_generate_node_for_workflow(
+        workflow: Dict[str, Any],
+        *,
+        node_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        config = workflow_engine.get_query_generate_config(workflow["graph"], node_id=node_id)
+        generator = query_generator_factory()
+        return generator.generate(
+            knowledge_base_id=config["knowledge_base_id"],
+            examples=config["examples"],
+            target_count=config["target_count"],
+            name=config["name"],
+        )
+
+    def create_eval_run_from_query_set(
+        *,
+        query_set: Dict[str, Any],
+        workflow: Dict[str, Any],
+        limit: Optional[int],
+    ) -> Dict[str, Any]:
+        validation = workflow_engine.validate_graph(workflow["graph"])
+        if validation.template_id not in {RAG_TEMPLATE_ID, LEGACY_FULL_RAG_TEMPLATE_ID, EVALUATION_TEMPLATE_ID}:
+            raise WorkflowValidationError("Eval run requires a RAG or evaluation workflow")
+        kb_id = workflow_engine.resolve_knowledge_base_id(workflow["graph"])
+        kb = store.get_knowledge_base(kb_id)
+        if kb["index_status"] != "ready":
+            raise ValueError("knowledge base index is not ready")
+        vector_manager = vector_builder_factory().manager
+        runner = WorkflowRunner(
+            workflow_engine=workflow_engine,
+            graph=workflow["graph"],
+            vector_manager=vector_manager,
+            collection_name=kb["collection_name"],
+            config_path=config_path,
+        )
+        samples = [{"question": query} for query in query_set["queries"]]
+        if limit:
+            samples = samples[:limit]
+        result = eval_engine_factory().invoke(runner, samples)
+        return store.create_eval_run(
+            query_set_id=query_set["id"],
+            workflow_id=workflow["id"],
+            status="completed",
+            metrics=result.overall,
+            output_csv=result.csv_path,
+        )
+
+    @app.get("/api/workflows/templates")
+    def list_workflow_templates() -> List[Dict[str, Any]]:
+        return get_workflow_templates()
+
     @app.get("/api/workflows/default")
-    def get_default_workflow() -> Dict[str, Any]:
-        return {"name": "Default RAG workflow", "graph": DEFAULT_WORKFLOW_GRAPH}
+    def get_default_workflow(template_id: str = DEFAULT_TEMPLATE_ID) -> Dict[str, Any]:
+        try:
+            graph = get_default_workflow_graph(template_id)
+            template = next(item for item in get_workflow_templates() if item["id"] == template_id)
+            return {"name": template["name"], "graph": graph}
+        except Exception as exc:
+            raise _http_error(exc)
 
     @app.get("/api/workflows")
     def list_workflows() -> List[Dict[str, Any]]:
@@ -616,6 +697,8 @@ def create_app(
         source_kb_id: Optional[int] = None
         try:
             workflow = store.get_workflow(workflow_id)
+            if not workflow_engine.is_prepare_graph(workflow["graph"]):
+                raise WorkflowValidationError("prepare only supports offline DB workflows")
             source_kb_id = workflow_engine.get_source_knowledge_base_id(workflow["graph"])
             chunk_config = workflow_engine.get_chunk_config(workflow["graph"])
             store.update_knowledge_base_index_status(
@@ -660,12 +743,16 @@ def create_app(
     def run_workflow(workflow_id: int, payload: WorkflowRunRequest) -> Dict[str, Any]:
         try:
             workflow = store.get_workflow(workflow_id)
+            if not workflow_engine.is_runtime_graph(workflow["graph"]):
+                raise WorkflowValidationError("run only supports RAG workflows")
             kb_id = _resolve_workflow_knowledge_base_id(
                 workflow_engine,
                 workflow,
                 None,
             )
             kb = store.get_knowledge_base(kb_id)
+            if kb["index_status"] != "ready":
+                raise ValueError("knowledge base index is not ready")
             vector_manager = vector_builder_factory().manager
             return workflow_engine.run_question(
                 workflow["graph"],
@@ -676,6 +763,59 @@ def create_app(
                 k=payload.k,
             )
         except Exception as exc:
+            raise _http_error(exc)
+
+    @app.post("/api/workflows/{workflow_id}/nodes/{node_id}/run")
+    def run_workflow_node(workflow_id: int, node_id: str) -> Dict[str, Any]:
+        try:
+            workflow = store.get_workflow(workflow_id)
+            query_set = run_query_generate_node_for_workflow(workflow, node_id=node_id)
+            return {
+                "workflow_id": workflow_id,
+                "node_id": node_id,
+                "node_type": "query_generate",
+                "query_set": query_set,
+            }
+        except Exception as exc:
+            raise _http_error(exc)
+
+    @app.post("/api/workflows/{workflow_id}/evaluate")
+    def evaluate_workflow(workflow_id: int) -> Dict[str, Any]:
+        query_set: Optional[Dict[str, Any]] = None
+        try:
+            workflow = store.get_workflow(workflow_id)
+            if not workflow_engine.is_evaluation_graph(workflow["graph"]):
+                raise WorkflowValidationError("evaluate only supports evaluation workflows")
+            eval_config = workflow_engine.get_eval_config(workflow["graph"])
+            query_set = run_query_generate_node_for_workflow(workflow)
+            eval_run = create_eval_run_from_query_set(
+                query_set=query_set,
+                workflow=workflow,
+                limit=eval_config["limit"],
+            )
+            return {
+                "workflow_id": workflow_id,
+                "query_set": query_set,
+                "eval_run": eval_run,
+            }
+        except Exception as exc:
+            if query_set is not None:
+                try:
+                    workflow = store.get_workflow(workflow_id)
+                    failed_run = store.create_eval_run(
+                        query_set_id=query_set["id"],
+                        workflow_id=workflow["id"],
+                        status="failed",
+                        metrics={},
+                        error=str(exc),
+                    )
+                    return {
+                        "workflow_id": workflow_id,
+                        "query_set": query_set,
+                        "eval_run": failed_run,
+                    }
+                except Exception:
+                    pass
             raise _http_error(exc)
 
     @app.get("/api/query-sets")
@@ -704,30 +844,12 @@ def create_app(
         try:
             query_set = store.get_query_set(payload.query_set_id)
             workflow = store.get_workflow(payload.workflow_id)
-            kb_id = _resolve_workflow_knowledge_base_id(
-                workflow_engine,
-                workflow,
-                None,
-            )
-            kb = store.get_knowledge_base(kb_id)
-            vector_manager = vector_builder_factory().manager
-            runner = WorkflowRunner(
-                workflow_engine=workflow_engine,
-                graph=workflow["graph"],
-                vector_manager=vector_manager,
-                collection_name=kb["collection_name"],
-                config_path=config_path,
-            )
-            samples = [{"question": query} for query in query_set["queries"]]
-            if payload.limit:
-                samples = samples[: payload.limit]
-            result = eval_engine_factory().invoke(runner, samples)
-            return store.create_eval_run(
-                query_set_id=payload.query_set_id,
-                workflow_id=payload.workflow_id,
-                status="completed",
-                metrics=result.overall,
-                output_csv=result.csv_path,
+            if not workflow_engine.is_runtime_graph(workflow["graph"]):
+                raise WorkflowValidationError("Eval run requires a RAG workflow")
+            return create_eval_run_from_query_set(
+                query_set=query_set,
+                workflow=workflow,
+                limit=payload.limit,
             )
         except Exception as exc:
             # A failed run is still durable product state; return it so the UI

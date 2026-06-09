@@ -24,6 +24,18 @@ export const nodeCatalog = [
     defaults: { label: 'Embed / Index', overwrite: true },
   },
   {
+    type: 'query_generate',
+    label: 'Query Generate',
+    caption: '生成 Query Set',
+    defaults: {
+      label: 'Query Generate',
+      knowledgeBaseId: '',
+      name: 'Workflow 生成的 Query 集',
+      examples: ['如何配置这个产品？', '上传文档后怎么检索？', '评测结果怎么看？'],
+      targetCount: 10,
+    },
+  },
+  {
     type: 'retrieve',
     label: 'Retrieve',
     caption: '检索 chunks',
@@ -45,6 +57,12 @@ export const nodeCatalog = [
     label: 'Answer',
     caption: '返回结果',
     defaults: { label: 'Answer', outputKey: 'answer', includeContexts: true },
+  },
+  {
+    type: 'ragas_eval',
+    label: 'RAGAS Eval',
+    caption: 'reference-free 评测',
+    defaults: { label: 'RAGAS Eval', metricPreset: 'reference_free', limit: '' },
   },
 ];
 

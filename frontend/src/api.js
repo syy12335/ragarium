@@ -49,7 +49,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ overwrite }),
     }),
-  getDefaultWorkflow: () => request('/api/workflows/default'),
+  listWorkflowTemplates: () => request('/api/workflows/templates'),
+  getDefaultWorkflow: (templateId = 'rag') => request(`/api/workflows/default?template_id=${encodeURIComponent(templateId)}`),
   listWorkflows: () => request('/api/workflows'),
   saveWorkflow: (payload) =>
     request('/api/workflows', { method: 'POST', body: JSON.stringify(payload) }),
@@ -62,6 +63,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+  runWorkflowNode: (workflowId, nodeId) =>
+    request(`/api/workflows/${workflowId}/nodes/${nodeId}/run`, { method: 'POST' }),
+  evaluateWorkflow: (workflowId) =>
+    request(`/api/workflows/${workflowId}/evaluate`, { method: 'POST' }),
   listQuerySets: (knowledgeBaseId) => {
     const query = knowledgeBaseId ? `?knowledge_base_id=${knowledgeBaseId}` : '';
     return request(`/api/query-sets${query}`);
