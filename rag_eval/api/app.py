@@ -49,6 +49,14 @@ class WorkflowRunRequest(BaseModel):
     k: int = 3
 
 
+class RuntimeInvokeRequest(BaseModel):
+    question: str = ""
+
+
+class RuntimeBatchRequest(BaseModel):
+    questions: List[str] = []
+
+
 class QueryGenerateRequest(BaseModel):
     knowledge_base_id: int
     examples: List[str]
@@ -116,6 +124,29 @@ def _resolve_workflow_knowledge_base_id(
     return workflow_engine.resolve_knowledge_base_id(workflow["graph"])
 
 
+def _runtime_success(output: Any, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    return {
+        "ok": True,
+        "output": output,
+        "metadata": metadata or {},
+    }
+
+
+def _runtime_error(
+    code: str,
+    message: str,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    return {
+        "ok": False,
+        "error": {
+            "code": code,
+            "message": message,
+        },
+        "metadata": metadata or {},
+    }
+
+
 def create_app(
     *,
     store: Optional[ProductStore] = None,
@@ -163,6 +194,261 @@ def create_app(
     @app.get("/api/health")
     def health() -> Dict[str, str]:
         return {"status": "ok"}
+
+    def runtime_top_k(graph: Dict[str, Any]) -> int:
+        validation = workflow_engine.validate_graph(graph)
+        retrieve_data = validation.nodes_by_type["retrieve"].get("data") or {}
+        raw_top_k = retrieve_data.get("topK") or retrieve_data.get("k") or 3
+        try:
+            return int(raw_top_k)
+        except (TypeError, ValueError):
+            raise WorkflowValidationError("retrieve.topK must be an integer")
+
+    def runtime_workflow_item(workflow: Dict[str, Any]) -> Dict[str, Any]:
+        item: Dict[str, Any] = {
+            "workflow_id": workflow["id"],
+            "name": workflow["name"],
+            "updated_at": workflow.get("updated_at"),
+            "knowledge_base_id": None,
+            "knowledge_base_name": None,
+            "collection_name": None,
+            "index_status": None,
+            "top_k": None,
+            "can_run": False,
+            "error": None,
+        }
+        try:
+            kb_id = workflow_engine.resolve_knowledge_base_id(workflow["graph"])
+            kb = store.get_knowledge_base(kb_id)
+            item.update(
+                {
+                    "knowledge_base_id": kb["id"],
+                    "knowledge_base_name": kb["name"],
+                    "collection_name": kb["collection_name"],
+                    "index_status": kb["index_status"],
+                    "top_k": runtime_top_k(workflow["graph"]),
+                    "can_run": kb["index_status"] == "ready",
+                }
+            )
+            if not item["can_run"]:
+                item["error"] = {
+                    "code": "index_not_ready",
+                    "message": "Workflow 绑定的知识库索引未就绪",
+                }
+        except KeyError as exc:
+            item["error"] = {"code": "knowledge_base_not_found", "message": str(exc)}
+        except Exception as exc:
+            item["error"] = {"code": "workflow_invalid", "message": str(exc)}
+        return item
+
+    def runtime_context(workflow_id: int) -> Dict[str, Any]:
+        try:
+            workflow = store.get_workflow(workflow_id)
+        except KeyError as exc:
+            return {
+                "error": _runtime_error(
+                    "workflow_not_found",
+                    str(exc),
+                    {"workflow_id": workflow_id},
+                )
+            }
+
+        try:
+            kb_id = workflow_engine.resolve_knowledge_base_id(workflow["graph"])
+            kb = store.get_knowledge_base(kb_id)
+            top_k = runtime_top_k(workflow["graph"])
+        except KeyError as exc:
+            return {
+                "error": _runtime_error(
+                    "knowledge_base_not_found",
+                    str(exc),
+                    {"workflow_id": workflow_id},
+                )
+            }
+        except Exception as exc:
+            return {
+                "error": _runtime_error(
+                    "workflow_invalid",
+                    str(exc),
+                    {"workflow_id": workflow_id},
+                )
+            }
+
+        metadata = {
+            "workflow_id": workflow_id,
+            "knowledge_base_id": kb["id"],
+            "collection_name": kb["collection_name"],
+            "top_k": top_k,
+        }
+        if kb["index_status"] != "ready":
+            return {
+                "error": _runtime_error(
+                    "index_not_ready",
+                    "Workflow 绑定的知识库索引未就绪，请先在产品内准备索引",
+                    {
+                        **metadata,
+                        "index_status": kb["index_status"],
+                    },
+                )
+            }
+
+        return {
+            "workflow": workflow,
+            "knowledge_base": kb,
+            "metadata": metadata,
+        }
+
+    def runtime_invoke_question(
+        workflow: Dict[str, Any],
+        kb: Dict[str, Any],
+        question: str,
+        metadata: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        result = workflow_engine.run_question(
+            workflow["graph"],
+            question=question,
+            vector_manager=vector_builder_factory().manager,
+            collection_name=kb["collection_name"],
+            config_path=config_path,
+        )
+        contexts = result.get("contexts") or []
+        output = {
+            "question": result.get("question") or question,
+            "answer": result.get("answer") or result.get("generation") or "",
+            "contexts": contexts,
+        }
+        return _runtime_success(
+            output,
+            {
+                **metadata,
+                "context_count": len(contexts),
+            },
+        )
+
+    @app.get("/api/runtime/capabilities")
+    def runtime_capabilities() -> Dict[str, Any]:
+        return _runtime_success(
+            {
+                "contract_version": "v1",
+                "transport": "http-json",
+                "capabilities": {
+                    "workflow_invoke": True,
+                    "workflow_batch": True,
+                    "node_invoke": False,
+                    "prepare": False,
+                },
+                "endpoints": {
+                    "list_workflows": "GET /api/runtime/workflows",
+                    "invoke": "POST /api/runtime/workflows/{workflow_id}/invoke",
+                    "batch": "POST /api/runtime/workflows/{workflow_id}/batch",
+                },
+                "schemas": {
+                    "invoke_request": {"question": "string"},
+                    "batch_request": {"questions": ["string"]},
+                    "response": {
+                        "ok": "boolean",
+                        "output": "object | array",
+                        "metadata": "object",
+                        "error": {"code": "string", "message": "string"},
+                    },
+                },
+                "examples": {
+                    "curl": (
+                        "curl -X POST http://127.0.0.1:8000/api/runtime/workflows/1/invoke "
+                        "-H 'Content-Type: application/json' "
+                        "-d '{\"question\":\"如何导入文档？\"}'"
+                    )
+                },
+            },
+            {"service": "rag-eval-runtime"},
+        )
+
+    @app.get("/api/runtime/workflows")
+    def runtime_workflows() -> Dict[str, Any]:
+        workflows = [runtime_workflow_item(workflow) for workflow in store.list_workflows()]
+        return _runtime_success(
+            {"workflows": workflows},
+            {"count": len(workflows)},
+        )
+
+    @app.post("/api/runtime/workflows/{workflow_id}/invoke")
+    def runtime_invoke(workflow_id: int, payload: Optional[RuntimeInvokeRequest] = None) -> Dict[str, Any]:
+        question = (payload.question if payload else "").strip()
+        if not question:
+            return _runtime_error(
+                "invalid_question",
+                "question 不能为空",
+                {"workflow_id": workflow_id},
+            )
+        context = runtime_context(workflow_id)
+        if "error" in context:
+            return context["error"]
+        try:
+            return runtime_invoke_question(
+                context["workflow"],
+                context["knowledge_base"],
+                question,
+                context["metadata"],
+            )
+        except Exception as exc:
+            return _runtime_error(
+                "workflow_run_failed",
+                str(exc),
+                context["metadata"],
+            )
+
+    @app.post("/api/runtime/workflows/{workflow_id}/batch")
+    def runtime_batch(workflow_id: int, payload: Optional[RuntimeBatchRequest] = None) -> Dict[str, Any]:
+        if not payload or not payload.questions:
+            return _runtime_error(
+                "invalid_questions",
+                "questions 不能为空",
+                {"workflow_id": workflow_id},
+            )
+        context = runtime_context(workflow_id)
+        if "error" in context:
+            return context["error"]
+
+        items = []
+        for index, raw_question in enumerate(payload.questions):
+            question = raw_question.strip()
+            item_metadata = {
+                **context["metadata"],
+                "index": index,
+            }
+            if not question:
+                items.append(
+                    _runtime_error(
+                        "invalid_question",
+                        "question 不能为空",
+                        item_metadata,
+                    )
+                )
+                continue
+            try:
+                items.append(
+                    runtime_invoke_question(
+                        context["workflow"],
+                        context["knowledge_base"],
+                        question,
+                        item_metadata,
+                    )
+                )
+            except Exception as exc:
+                items.append(
+                    _runtime_error(
+                        "workflow_run_failed",
+                        str(exc),
+                        item_metadata,
+                    )
+                )
+        return _runtime_success(
+            {"items": items},
+            {
+                **context["metadata"],
+                "count": len(items),
+            },
+        )
 
     @app.get("/api/config")
     def get_config() -> Dict[str, Any]:

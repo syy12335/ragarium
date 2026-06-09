@@ -100,6 +100,76 @@ def test_api_import_index_generate_and_eval(tmp_path):
     assert run_response.status_code == 200
     assert "fake answer" in run_response.json()["answer"]
 
+    capabilities_response = client.get("/api/runtime/capabilities")
+    assert capabilities_response.status_code == 200
+    assert capabilities_response.json()["ok"] is True
+    assert capabilities_response.json()["output"]["contract_version"] == "v1"
+    assert capabilities_response.json()["output"]["capabilities"]["workflow_invoke"] is True
+
+    runtime_workflows_response = client.get("/api/runtime/workflows")
+    assert runtime_workflows_response.status_code == 200
+    runtime_workflows = runtime_workflows_response.json()["output"]["workflows"]
+    assert runtime_workflows[0]["workflow_id"] == workflow_id
+    assert runtime_workflows[0]["can_run"] is True
+
+    runtime_invoke_response = client.post(
+        f"/api/runtime/workflows/{workflow_id}/invoke",
+        json={"question": "How does runtime work?"},
+    )
+    assert runtime_invoke_response.status_code == 200
+    runtime_invoke = runtime_invoke_response.json()
+    assert runtime_invoke["ok"] is True
+    assert runtime_invoke["output"]["question"] == "How does runtime work?"
+    assert "fake answer" in runtime_invoke["output"]["answer"]
+    assert runtime_invoke["metadata"]["workflow_id"] == workflow_id
+    assert runtime_invoke["metadata"]["knowledge_base_id"] == kb_id
+    assert runtime_invoke["metadata"]["context_count"] == 1
+
+    runtime_batch_response = client.post(
+        f"/api/runtime/workflows/{workflow_id}/batch",
+        json={"questions": ["one", "two"]},
+    )
+    assert runtime_batch_response.status_code == 200
+    runtime_batch = runtime_batch_response.json()
+    assert runtime_batch["ok"] is True
+    assert len(runtime_batch["output"]["items"]) == 2
+    assert runtime_batch["output"]["items"][0]["ok"] is True
+
+    empty_question_response = client.post(
+        f"/api/runtime/workflows/{workflow_id}/invoke",
+        json={"question": "   "},
+    )
+    assert empty_question_response.status_code == 200
+    assert empty_question_response.json()["ok"] is False
+    assert empty_question_response.json()["error"]["code"] == "invalid_question"
+
+    missing_body_response = client.post(f"/api/runtime/workflows/{workflow_id}/invoke")
+    assert missing_body_response.status_code == 200
+    assert missing_body_response.json()["ok"] is False
+    assert missing_body_response.json()["error"]["code"] == "invalid_question"
+
+    missing_workflow_response = client.post(
+        "/api/runtime/workflows/999/invoke",
+        json={"question": "hello"},
+    )
+    assert missing_workflow_response.status_code == 200
+    assert missing_workflow_response.json()["ok"] is False
+    assert missing_workflow_response.json()["error"]["code"] == "workflow_not_found"
+
+    stale_kb = client.post("/api/knowledge-bases", json={"name": "Stale Docs"}).json()
+    stale_workflow_response = client.post(
+        "/api/workflows",
+        json={"name": "Stale", "graph": graph_with_source_db(stale_kb["id"])},
+    )
+    stale_workflow_id = stale_workflow_response.json()["id"]
+    stale_invoke_response = client.post(
+        f"/api/runtime/workflows/{stale_workflow_id}/invoke",
+        json={"question": "hello"},
+    )
+    assert stale_invoke_response.status_code == 200
+    assert stale_invoke_response.json()["ok"] is False
+    assert stale_invoke_response.json()["error"]["code"] == "index_not_ready"
+
     query_response = client.post(
         "/api/query-sets/generate",
         json={
