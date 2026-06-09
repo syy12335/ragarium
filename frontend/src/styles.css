@@ -264,6 +264,104 @@ select:focus {
   align-items: start;
 }
 
+.home-layout {
+  display: grid;
+  grid-template-columns: minmax(520px, 1.2fr) minmax(360px, 0.8fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.runtime-panel {
+  grid-column: 1 / -1;
+}
+
+.launch-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.launch-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  width: 100%;
+  min-height: 78px;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  padding: 13px;
+  background: #ffffff;
+  color: #263445;
+  text-align: left;
+  cursor: pointer;
+}
+
+.launch-card:hover {
+  border-color: #2563a6;
+  background: #f3f8fc;
+}
+
+.launch-card span,
+.launch-card strong,
+.launch-card small {
+  display: block;
+  min-width: 0;
+}
+
+.launch-card strong {
+  font-size: 14px;
+}
+
+.launch-card small {
+  margin-top: 4px;
+  color: #637286;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.runtime-card {
+  display: grid;
+  grid-template-columns: 1.6fr 0.7fr 0.7fr;
+  gap: 12px;
+}
+
+.runtime-card > div {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 11px;
+  background: #f8fafc;
+}
+
+.runtime-card span {
+  color: #637286;
+  font-size: 12px;
+}
+
+.runtime-card strong {
+  overflow-wrap: anywhere;
+}
+
+.endpoint-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.endpoint-list code {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  border: 1px solid #d9e2ec;
+  border-radius: 6px;
+  padding: 9px 10px;
+  background: #fbfdff;
+  color: #263445;
+  font-size: 12px;
+}
+
 .db-sidebar {
   position: sticky;
   top: 22px;
@@ -766,6 +864,7 @@ pre {
 
 @media (max-width: 980px) {
   .app-shell,
+  .home-layout,
   .data-layout,
   .two-column,
   .detail-grid,
@@ -803,6 +902,8 @@ pre {
   }
 
   .db-summary,
+  .runtime-card,
+  .endpoint-list,
   .provider-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -827,6 +928,9 @@ pre {
   .chunk-bar,
   .field-grid,
   .provider-grid,
+  .launch-grid,
+  .runtime-card,
+  .endpoint-list,
   .db-summary {
     grid-template-columns: 1fr;
   }

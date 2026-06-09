@@ -3,6 +3,7 @@ import {
   Bot,
   Database,
   GitBranch,
+  Home,
   ListChecks,
   RefreshCw,
   SlidersHorizontal,
@@ -13,10 +14,12 @@ import { Button } from './components/ui.jsx';
 import { ConfigPage } from './pages/ConfigPage.jsx';
 import { DataPage } from './pages/DataPage.jsx';
 import { EvaluationPage } from './pages/EvaluationPage.jsx';
+import { HomePage } from './pages/HomePage.jsx';
 import { QueryPage } from './pages/QueryPage.jsx';
 import { WorkflowPage } from './pages/WorkflowPage.jsx';
 
 const tabs = [
+  { id: 'home', label: '导航', subtitle: '产品入口与 Runtime API', icon: Home },
   { id: 'data', label: '数据', subtitle: 'name-db 导入、Chunk 和索引状态', icon: Database },
   { id: 'workflow', label: 'Workflow', subtitle: 'Dify-like RAG pipeline 画布', icon: GitBranch },
   { id: 'queries', label: 'Query 生成', subtitle: '生成 query-only 评测集', icon: WandSparkles },
@@ -54,7 +57,7 @@ function useRemoteState() {
 
 export default function App() {
   const remote = useRemoteState();
-  const [activeTab, setActiveTab] = useState('data');
+  const [activeTab, setActiveTab] = useState('home');
   const [status, setStatus] = useState('就绪');
   const active = tabs.find((tab) => tab.id === activeTab) || tabs[0];
 
@@ -117,6 +120,7 @@ export default function App() {
           </Button>
         </header>
 
+        {activeTab === 'home' ? <HomePage remote={remote} onNavigate={setActiveTab} /> : null}
         {activeTab === 'data' ? <DataPage remote={remote} runTask={runTask} /> : null}
         {activeTab === 'workflow' ? <WorkflowPage remote={remote} runTask={runTask} /> : null}
         {activeTab === 'queries' ? <QueryPage remote={remote} runTask={runTask} /> : null}
