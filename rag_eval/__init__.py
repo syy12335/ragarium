@@ -50,14 +50,29 @@ rag_eval 顶层包的公共 API。
        eval_result.show_console(top_n=5)
 """
 
-from .vector.vector_builder import VectorDatabaseBuilder
-from . import dataset_tools
-from .rag import RagRunner
-from .eval_engine import EvalEngine
-
 __all__ = [
     "VectorDatabaseBuilder",
     "dataset_tools",
     "RagRunner",
     "EvalEngine",
 ]
+
+
+def __getattr__(name: str):
+    if name == "VectorDatabaseBuilder":
+        from .vector.vector_builder import VectorDatabaseBuilder
+
+        return VectorDatabaseBuilder
+    if name == "dataset_tools":
+        from . import dataset_tools
+
+        return dataset_tools
+    if name == "RagRunner":
+        from .rag import RagRunner
+
+        return RagRunner
+    if name == "EvalEngine":
+        from .eval_engine import EvalEngine
+
+        return EvalEngine
+    raise AttributeError(f"module 'rag_eval' has no attribute {name!r}")

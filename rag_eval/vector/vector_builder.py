@@ -90,6 +90,31 @@ def convert_chunks_to_documents(records: List[Dict[str, Any]]) -> List[Document]
     return docs
 
 
+def convert_product_chunks_to_documents(records: List[Dict[str, Any]]) -> List[Document]:
+    """
+    Convert product knowledge-base chunks from SQLite into LangChain Documents.
+
+    Product chunks use `content` plus JSON metadata. The older CMRC path uses
+    `text`; both are intentionally kept separate so the demo path stays stable.
+    """
+    docs: List[Document] = []
+    for item in records:
+        metadata = item.get("metadata") or item.get("metadata_json") or {}
+        if isinstance(metadata, str):
+            metadata = {"raw_metadata": metadata}
+        if "chunk_index" not in metadata and "chunk_index" in item:
+            metadata["chunk_index"] = item["chunk_index"]
+        if "source_id" not in metadata and "source_id" in item:
+            metadata["source_id"] = item["source_id"]
+        docs.append(
+            Document(
+                page_content=item.get("content") or item.get("text") or "",
+                metadata=metadata,
+            )
+        )
+    return docs
+
+
 class VectorDatabaseBuilder:
     """
     VectorDatabaseBuilder：评估样本与 chunk 文件到向量库的统一构建入口。
@@ -309,6 +334,41 @@ class VectorDatabaseBuilder:
         self.manager.add_documents(docs, collection_name=coll)
 
         print("[vector_builder] 向量库构建完成")
+        return self.manager
+
+    def build_from_chunks(
+        self,
+        chunk_records: List[Dict[str, Any]],
+        *,
+        collection_name: str,
+        overwrite: bool = True,
+    ) -> VectorStoreManager:
+        """
+        Build a Chroma collection from product knowledge-base chunk records.
+
+        This is the product path used by the FastAPI app. The legacy `invoke`
+        method remains the CMRC demo-compatible path.
+        """
+        if not chunk_records:
+            raise ValueError("chunk_records is empty; cannot build vector store")
+
+        coll = self._resolve_collection_name(collection_name)
+        if overwrite:
+            self.manager.delete_collection(coll)
+        elif self._collection_exists(coll):
+            return self.manager
+
+        docs = convert_product_chunks_to_documents(chunk_records)
+        docs = [doc for doc in docs if doc.page_content.strip()]
+        if not docs:
+            raise ValueError("all chunks are empty; cannot build vector store")
+
+        print(
+            f"[vector_builder] 写入产品知识库向量库（共 {len(docs)} 条 chunk），"
+            f"collection='{coll}'"
+        )
+        self.manager.add_documents(docs, collection_name=coll)
+        print("[vector_builder] 产品知识库向量库构建完成")
         return self.manager
 
 

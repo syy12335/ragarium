@@ -25,6 +25,7 @@ class NormalRag:
         self,
         retriever: Any,
         config_path: str = "config/application.yaml",
+        prompt_text: Optional[str] = None,
     ) -> None:
         self.retriever = retriever
 
@@ -82,9 +83,8 @@ class NormalRag:
         )
 
         # 2）构造 Prompt：直接把 YAML 里的 prompt 塞进 template
-        prompt_text = gen_cfg.get("prompt")
         if not prompt_text:
-            prompt_text = (
+            prompt_text = gen_cfg.get("prompt") or (
                 "问题：{question}\n\n"
                 "上下文：\n{contexts}\n\n"
                 "记忆：{memory_text}"
