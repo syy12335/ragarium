@@ -53,15 +53,13 @@ export function HomePage({ remote, onNavigate }) {
   const callableWorkflows = useMemo(
     () => remote.workflows.filter((workflow) => {
       try {
-        const templateId = workflow.graph.templateId;
-        const types = new Set((workflow.graph.nodes || []).map((node) => node.type));
-        const isRuntimeWorkflow = templateId === 'rag' || (!templateId && types.has('source') && types.has('retrieve'));
-        if (!isRuntimeWorkflow) {
+        if (!workflow.runtime_capable) {
           return false;
         }
         const retrieveNode = workflow.graph.nodes.find((node) => node.type === 'retrieve');
         const sourceNode = workflow.graph.nodes.find((node) => node.type === 'source');
-        const kbId = retrieveNode?.data?.knowledgeBaseId || sourceNode?.data?.knowledgeBaseId;
+        const queryNode = workflow.graph.nodes.find((node) => node.type === 'query_generate');
+        const kbId = retrieveNode?.data?.knowledgeBaseId || sourceNode?.data?.knowledgeBaseId || queryNode?.data?.knowledgeBaseId;
         const kb = remote.knowledgeBases.find((item) => String(item.id) === String(kbId));
         return kb?.index_status === 'ready';
       } catch {

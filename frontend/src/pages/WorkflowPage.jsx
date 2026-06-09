@@ -10,11 +10,9 @@ import {
   applyNodeChanges,
 } from '@xyflow/react';
 import {
-  Database,
   ListChecks,
   Play,
   Plus,
-  RotateCcw,
   Save,
   Settings,
   Trash2,
@@ -24,130 +22,120 @@ import { api } from '../api.js';
 import { Button, EmptyState, Field, Panel, StatusPill } from '../components/ui.jsx';
 import { buildNode, nodeCatalog, nodeMeta } from '../workflowNodes.js';
 
-const DEFAULT_TEMPLATE_ID = 'rag';
-const LEGACY_TEMPLATE_ID = 'legacy_full_rag';
+const DEFAULT_TEMPLATE_ID = 'blank';
 
 function FlowNode({ data, type, selected }) {
   const meta = nodeMeta[type] || {};
-  const isSourceLike = type === 'source' || type === 'query_generate';
-  const isTerminal = type === 'answer' || type === 'ragas_eval';
   return (
     <div className={`flow-node flow-node-${type} ${selected ? 'selected' : ''}`}>
-      {!isSourceLike ? <Handle type="target" position={Position.Left} /> : null}
+      {type !== 'start' ? <Handle type="target" position={Position.Left} /> : null}
       <strong>{data?.label || meta.label || type}</strong>
       <small>{meta.caption}</small>
-      {!isTerminal ? <Handle type="source" position={Position.Right} /> : null}
+      {type !== 'end' ? <Handle type="source" position={Position.Right} /> : null}
     </div>
   );
 }
 
 const nodeTypes = Object.fromEntries(nodeCatalog.map((item) => [item.type, FlowNode]));
 
-function inferTemplateId(graph) {
-  if (graph?.templateId) {
-    return graph.templateId;
+function graphNameForTemplate(templateId, templates) {
+  const template = templates.find((item) => item.id === templateId);
+  if (!template || template.id === 'blank') {
+    return '未命名 Graph';
   }
-  const types = new Set((graph?.nodes || []).map((node) => node.type));
-  if (types.has('query_generate') || types.has('ragas_eval')) {
-    return 'evaluation';
-  }
-  if (types.has('source') && types.has('parse') && types.has('chunk') && types.has('embed_index') && types.has('retrieve')) {
-    return LEGACY_TEMPLATE_ID;
-  }
-  if (types.has('source') && types.has('parse') && types.has('chunk') && types.has('embed_index')) {
-    return 'offline_db';
-  }
-  return DEFAULT_TEMPLATE_ID;
+  return `${template.name} Graph`;
 }
 
-function workflowNameFallback(templateId, templates) {
-  if (templateId === LEGACY_TEMPLATE_ID) {
-    return 'Legacy Full RAG Workflow';
-  }
-  return templates.find((item) => item.id === templateId)?.name || 'RAG Workflow';
+function cloneGraph(graph) {
+  return {
+    templateId: graph.templateId || DEFAULT_TEMPLATE_ID,
+    nodes: graph.nodes || [],
+    edges: graph.edges || [],
+  };
 }
 
 export function WorkflowPage({ remote, runTask }) {
   const [templates, setTemplates] = useState([]);
-  const [templateId, setTemplateId] = useState(DEFAULT_TEMPLATE_ID);
-  const [workflowName, setWorkflowName] = useState('进行 RAG');
+  const [starterTemplateId, setStarterTemplateId] = useState(DEFAULT_TEMPLATE_ID);
+  const [workflowName, setWorkflowName] = useState('未命名 Graph');
   const [workflowId, setWorkflowId] = useState('');
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
   const [selectedNodeId, setSelectedNodeId] = useState('');
-  const [question, setQuestion] = useState('');
-  const [answer, setAnswer] = useState(null);
-  const [prepareResult, setPrepareResult] = useState(null);
+  const [flowInstance, setFlowInstance] = useState(null);
+  const [startInputs, setStartInputs] = useState({});
+  const [validationResult, setValidationResult] = useState(null);
+  const [executeResult, setExecuteResult] = useState(null);
   const [queryNodeResult, setQueryNodeResult] = useState(null);
-  const [evaluationResult, setEvaluationResult] = useState(null);
 
   useEffect(() => {
     async function loadInitial() {
       const items = await api.listWorkflowTemplates();
       setTemplates(items);
-      await resetDefaultWorkflow(DEFAULT_TEMPLATE_ID, items);
+      await createNewGraph(DEFAULT_TEMPLATE_ID, items);
     }
-    loadInitial().catch(() => resetDefaultWorkflow(DEFAULT_TEMPLATE_ID, []));
+    loadInitial().catch(() => createNewGraph(DEFAULT_TEMPLATE_ID, []));
   }, []);
 
-  const graph = useMemo(() => ({ templateId, nodes, edges }), [templateId, nodes, edges]);
-  const selectedNode = nodes.find((node) => node.id === selectedNodeId);
-  const existingTypes = new Set(nodes.map((node) => node.type));
-  const currentTemplate = templates.find((item) => item.id === templateId);
-  const allowedTypes = currentTemplate?.node_types || (
-    templateId === LEGACY_TEMPLATE_ID
-      ? ['source', 'parse', 'chunk', 'embed_index', 'retrieve', 'prompt_llm', 'answer']
-      : []
+  const graph = useMemo(
+    () => ({ templateId: starterTemplateId, nodes, edges }),
+    [starterTemplateId, nodes, edges],
   );
-  const availableNodes = nodeCatalog.filter((item) => allowedTypes.includes(item.type));
+  const selectedNode = nodes.find((node) => node.id === selectedNodeId);
+  const startNode = nodes.find((node) => node.type === 'start');
+  const startFields = Array.isArray(startNode?.data?.fields) ? startNode.data.fields : [];
 
-  function clearOutputs() {
-    setAnswer(null);
-    setPrepareResult(null);
+  function clearRunState() {
+    setValidationResult(null);
+    setExecuteResult(null);
     setQueryNodeResult(null);
-    setEvaluationResult(null);
   }
 
-  async function resetDefaultWorkflow(nextTemplateId = templateId, knownTemplates = templates) {
-    const normalizedTemplateId = nextTemplateId === LEGACY_TEMPLATE_ID ? DEFAULT_TEMPLATE_ID : nextTemplateId;
-    const payload = await api.getDefaultWorkflow(normalizedTemplateId || DEFAULT_TEMPLATE_ID);
+  async function createNewGraph(templateId = DEFAULT_TEMPLATE_ID, knownTemplates = templates) {
+    const payload = await api.getDefaultWorkflow(templateId);
+    const nextGraph = cloneGraph(payload.graph);
     setWorkflowId('');
-    setTemplateId(payload.graph.templateId || normalizedTemplateId || DEFAULT_TEMPLATE_ID);
-    setWorkflowName(payload.name || workflowNameFallback(normalizedTemplateId, knownTemplates));
-    setNodes(payload.graph.nodes);
-    setEdges(payload.graph.edges);
-    setSelectedNodeId(payload.graph.nodes[0]?.id || '');
-    clearOutputs();
+    setStarterTemplateId(nextGraph.templateId || templateId);
+    setWorkflowName(graphNameForTemplate(templateId, knownTemplates));
+    setNodes(nextGraph.nodes);
+    setEdges(nextGraph.edges);
+    setSelectedNodeId(nextGraph.nodes[0]?.id || '');
+    setStartInputs({});
+    clearRunState();
   }
 
   function loadWorkflow(id) {
     if (!id) {
-      resetDefaultWorkflow(templateId).catch(() => {});
+      createNewGraph(starterTemplateId).catch(() => {});
       return;
     }
-    setWorkflowId(id);
     const workflow = remote.workflows.find((item) => String(item.id) === String(id));
     if (!workflow) {
       return;
     }
-    const loadedTemplateId = inferTemplateId(workflow.graph);
-    setTemplateId(loadedTemplateId);
+    const nextGraph = cloneGraph(workflow.graph);
+    setWorkflowId(String(workflow.id));
+    setStarterTemplateId(nextGraph.templateId || 'custom');
     setWorkflowName(workflow.name);
-    setNodes(workflow.graph.nodes);
-    setEdges(workflow.graph.edges);
-    setSelectedNodeId(workflow.graph.nodes[0]?.id || '');
-    clearOutputs();
+    setNodes(nextGraph.nodes);
+    setEdges(nextGraph.edges);
+    setSelectedNodeId(nextGraph.nodes[0]?.id || '');
+    setStartInputs({});
+    clearRunState();
   }
 
-  function addNode(type) {
-    const existing = nodes.find((node) => node.type === type);
-    if (existing) {
-      setSelectedNodeId(existing.id);
-      return;
+  function addNode(type, position = null) {
+    if (['start', 'end'].includes(type)) {
+      const existing = nodes.find((node) => node.type === type);
+      if (existing) {
+        setSelectedNodeId(existing.id);
+        return;
+      }
     }
-    const next = buildNode(type, nodes.length);
+    const next = buildNode(type, nodes.length, position);
     setNodes((current) => [...current, next]);
     setSelectedNodeId(next.id);
+    clearRunState();
   }
 
   function deleteSelectedNode() {
@@ -157,6 +145,7 @@ export function WorkflowPage({ remote, runTask }) {
     setNodes((current) => current.filter((node) => node.id !== selectedNodeId));
     setEdges((current) => current.filter((edge) => edge.source !== selectedNodeId && edge.target !== selectedNodeId));
     setSelectedNodeId('');
+    clearRunState();
   }
 
   function updateSelectedNodeData(key, value) {
@@ -167,12 +156,35 @@ export function WorkflowPage({ remote, runTask }) {
           : node,
       ),
     );
+    clearRunState();
+  }
+
+  function onDragStart(event, type) {
+    event.dataTransfer.setData('application/rag-node-type', type);
+    event.dataTransfer.effectAllowed = 'move';
+  }
+
+  function onDragOver(event) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+  }
+
+  function onDrop(event) {
+    event.preventDefault();
+    const type = event.dataTransfer.getData('application/rag-node-type');
+    if (!type) {
+      return;
+    }
+    const position = flowInstance?.screenToFlowPosition
+      ? flowInstance.screenToFlowPosition({ x: event.clientX, y: event.clientY })
+      : { x: event.clientX - 320, y: event.clientY - 160 };
+    addNode(type, position);
   }
 
   async function saveCurrentWorkflow() {
     const saved = await api.saveWorkflow({
       id: workflowId || undefined,
-      name: workflowName.trim() || workflowNameFallback(templateId, templates),
+      name: workflowName.trim() || '未命名 Graph',
       graph,
     });
     setWorkflowId(String(saved.id));
@@ -180,21 +192,17 @@ export function WorkflowPage({ remote, runTask }) {
     return saved;
   }
 
-  async function prepareWorkflow() {
-    const saved = await saveCurrentWorkflow();
-    const result = await api.prepareWorkflow(saved.id);
-    setPrepareResult(result);
-    await remote.refresh();
+  async function validateCurrentWorkflow() {
+    const result = await api.validateWorkflow({ name: workflowName || '未命名 Graph', graph });
+    setValidationResult(result);
     return result;
   }
 
-  async function runWorkflow() {
-    if (!question.trim()) {
-      throw new Error('请先输入问题');
-    }
+  async function executeCurrentWorkflow() {
     const saved = await saveCurrentWorkflow();
-    const result = await api.runWorkflow(saved.id, { question: question.trim() });
-    setAnswer(result);
+    const result = await api.executeWorkflow(saved.id, { inputs: startInputs });
+    setExecuteResult(result);
+    await remote.refresh();
     return result;
   }
 
@@ -209,203 +217,156 @@ export function WorkflowPage({ remote, runTask }) {
     return result;
   }
 
-  async function runEvaluationWorkflow() {
-    const saved = await saveCurrentWorkflow();
-    const result = await api.evaluateWorkflow(saved.id);
-    setEvaluationResult(result);
-    await remote.refresh();
-    return result;
-  }
-
-  function renderRunBox() {
-    if (templateId === 'offline_db') {
-      return (
-        <div className="run-box">
-          <Button icon={Database} variant="secondary" onClick={() => runTask('准备 Workflow 中', prepareWorkflow)}>
-            保存并准备索引
-          </Button>
-          {prepareResult ? (
-            <div className="mini-result">
-              <span>已准备 DB #{prepareResult.knowledge_base_id}</span>
-              <StatusPill status={prepareResult.index_status} />
-              <small>{prepareResult.chunk_count} 个 chunks · {prepareResult.collection_name}</small>
-            </div>
-          ) : null}
-        </div>
-      );
-    }
-
-    if (templateId === 'evaluation') {
-      return (
-        <div className="run-box">
-          <Button icon={ListChecks} onClick={() => runTask('运行评测 Workflow 中', runEvaluationWorkflow)}>
-            保存并运行评测
-          </Button>
-          {queryNodeResult ? <QuerySetResult result={queryNodeResult.query_set} title="节点生成结果" /> : null}
-          {evaluationResult ? (
-            <div className="result">
-              <h3>评测结果</h3>
-              <QuerySetResult result={evaluationResult.query_set} title="生成的 Query Set" />
-              <div className="mini-result">
-                <span>Eval run #{evaluationResult.eval_run?.id}</span>
-                <StatusPill status={evaluationResult.eval_run?.status} />
-              </div>
-              {Object.keys(evaluationResult.eval_run?.metrics || {}).length ? (
-                <pre>{JSON.stringify(evaluationResult.eval_run.metrics, null, 2)}</pre>
-              ) : null}
-              {evaluationResult.eval_run?.error ? <p className="error-text">{evaluationResult.eval_run.error}</p> : null}
-            </div>
-          ) : null}
-        </div>
-      );
-    }
-
-    return (
-      <div className="run-box">
-        {templateId === LEGACY_TEMPLATE_ID ? (
-          <>
-            <Button icon={Database} variant="secondary" onClick={() => runTask('准备 Workflow 中', prepareWorkflow)}>
-              保存并准备索引
-            </Button>
-            {prepareResult ? (
-              <div className="mini-result">
-                <span>已准备 DB #{prepareResult.knowledge_base_id}</span>
-                <StatusPill status={prepareResult.index_status} />
-                <small>{prepareResult.chunk_count} 个 chunks · {prepareResult.collection_name}</small>
-              </div>
-            ) : null}
-          </>
-        ) : null}
-        <Field label="问题">
-          <textarea value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="输入要基于 Workflow DB 检索回答的问题" />
-        </Field>
-        <Button icon={Play} disabled={!question.trim()} onClick={() => runTask('运行 Workflow 中', runWorkflow)}>
-          保存并运行
-        </Button>
-        {answer ? (
-          <div className="result">
-            <h3>回答</h3>
-            <p>{answer.answer || answer.generation}</p>
-            <h3>上下文</h3>
-            {(answer.contexts || []).slice(0, 4).map((context, index) => (
-              <p className="chunk-preview" key={index}>{typeof context === 'string' ? context : context.content}</p>
-            ))}
-          </div>
-        ) : null}
-      </div>
-    );
+  function updateStartInput(name, value) {
+    setStartInputs((current) => ({ ...current, [name]: value }));
   }
 
   return (
-    <div className="workflow-page">
-      <Panel title="Workflow 模板" className="template-panel">
-        <div className="template-grid">
+    <div className="workflow-layout graph-editor-layout">
+      <Panel title="Graph" className="graph-sidebar">
+        <Field label="已保存 Graph">
+          <select value={workflowId} onChange={(event) => loadWorkflow(event.target.value)}>
+            <option value="">未保存草稿</option>
+            {remote.workflows.map((workflow) => (
+              <option key={workflow.id} value={workflow.id}>{workflow.name}</option>
+            ))}
+          </select>
+        </Field>
+
+        <div className="new-graph-list">
+          <span>新建 Graph</span>
           {templates.map((template) => (
             <button
               key={template.id}
-              className={templateId === template.id ? 'template-card active' : 'template-card'}
-              onClick={() => runTask('加载 Workflow 模板中', () => resetDefaultWorkflow(template.id))}
+              className="new-graph-card"
+              onClick={() => runTask('新建 Graph 中', () => createNewGraph(template.id))}
             >
               <strong>{template.name}</strong>
-              <span>{template.description}</span>
-              <small>{template.node_types.join(' -> ')}</small>
+              <small>{template.description}</small>
+            </button>
+          ))}
+        </div>
+
+        <div className="node-list">
+          <span className="section-label">节点库</span>
+          {nodeCatalog.map((item) => (
+            <button
+              key={item.type}
+              className="node-card"
+              draggable
+              onDragStart={(event) => onDragStart(event, item.type)}
+              onClick={() => addNode(item.type)}
+              title="点击添加，或拖拽到画布"
+            >
+              <Plus size={15} />
+              <span>
+                <strong>{item.label}</strong>
+                <small>{item.caption}</small>
+              </span>
             </button>
           ))}
         </div>
       </Panel>
 
-      <div className="workflow-layout">
-        <Panel
-          title="节点"
-          className="node-library"
-          actions={
-            <Button icon={RotateCcw} variant="secondary" onClick={() => runTask('重置 Workflow 中', () => resetDefaultWorkflow(templateId))}>
-              重置
-            </Button>
+      <div className="canvas-panel" onDrop={onDrop} onDragOver={onDragOver}>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          onInit={setFlowInstance}
+          onNodesChange={(changes) => setNodes((current) => applyNodeChanges(changes, current))}
+          onEdgesChange={(changes) => setEdges((current) => applyEdgeChanges(changes, current))}
+          onConnect={(params) =>
+            setEdges((current) =>
+              addEdge(
+                {
+                  ...params,
+                  id: `${params.source}-${params.target}-${Date.now()}`,
+                  animated: false,
+                },
+                current,
+              ),
+            )
           }
+          onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+          onPaneClick={() => setSelectedNodeId('')}
+          fitView
         >
-          <div className="node-list">
-            {availableNodes.map((item) => {
-              const exists = existingTypes.has(item.type);
-              return (
-                <button
-                  key={item.type}
-                  className={exists ? 'node-card active' : 'node-card'}
-                  onClick={() => addNode(item.type)}
-                  title={exists ? '已在画布中，点击可选中。' : '添加节点到画布'}
-                >
-                  <Plus size={15} />
-                  <span>
-                    <strong>{item.label}</strong>
-                    <small>{item.caption}</small>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </Panel>
+          <Background />
+          <Controls />
+        </ReactFlow>
+      </div>
 
-        <div className="canvas-panel">
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            onNodesChange={(changes) => setNodes((current) => applyNodeChanges(changes, current))}
-            onEdgesChange={(changes) => setEdges((current) => applyEdgeChanges(changes, current))}
-            onConnect={(params) =>
-              setEdges((current) =>
-                addEdge(
-                  {
-                    ...params,
-                    id: `${params.source}-${params.target}-${Date.now()}`,
-                    animated: false,
-                  },
-                  current,
-                ),
-              )
-            }
-            onNodeClick={(_, node) => setSelectedNodeId(node.id)}
-            onPaneClick={() => setSelectedNodeId('')}
-            fitView
-          >
-            <Background />
-            <Controls />
-          </ReactFlow>
+      <Panel title="参数配置" className="inspector-panel" actions={<Settings size={17} />}>
+        <Field label="Graph 名称">
+          <input value={workflowName} onChange={(event) => setWorkflowName(event.target.value)} />
+        </Field>
+        <div className="button-row">
+          <Button icon={ListChecks} variant="secondary" onClick={() => runTask('校验 Graph 中', validateCurrentWorkflow)}>
+            校验
+          </Button>
+          <Button icon={Save} onClick={() => runTask('保存 Graph 中', saveCurrentWorkflow)}>
+            保存
+          </Button>
+          <Button icon={Play} onClick={() => runTask('执行 Graph 中', executeCurrentWorkflow)}>
+            执行
+          </Button>
         </div>
 
-        <Panel title="参数配置" className="inspector-panel" actions={<Settings size={17} />}>
-          <Field label="已保存 Workflow">
-            <select value={workflowId} onChange={(event) => loadWorkflow(event.target.value)}>
-              <option value="">未保存的默认配置</option>
-              {remote.workflows.map((workflow) => (
-                <option key={workflow.id} value={workflow.id}>{workflow.name}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="名称">
-            <input value={workflowName} onChange={(event) => setWorkflowName(event.target.value)} />
-          </Field>
-          <div className="button-row">
-            <Button icon={ListChecks} variant="secondary" onClick={() => runTask('校验 Workflow 中', () => api.validateWorkflow({ name: workflowName, graph }))}>
-              校验
-            </Button>
-            <Button icon={Save} onClick={() => runTask('保存 Workflow 中', saveCurrentWorkflow)}>
-              保存
-            </Button>
+        {validationResult ? (
+          <div className={validationResult.ok ? 'hint-box' : 'hint-box error-box'}>
+            <strong>{validationResult.ok ? '可执行' : '暂不可执行'}</strong>
+            <span>{validationResult.ok ? `${validationResult.node_count} 个节点已通过运行前校验` : validationResult.error}</span>
           </div>
+        ) : null}
 
-          <NodeInspector
-            node={selectedNode}
-            templateId={templateId}
-            remote={remote}
-            onChange={updateSelectedNodeData}
-            onDelete={deleteSelectedNode}
-            onRunNode={() => runTask('运行 Query Generate 节点中', runSelectedNode)}
-          />
+        <StartInputForm fields={startFields} values={startInputs} onChange={updateStartInput} />
 
-          {renderRunBox()}
-        </Panel>
-      </div>
+        <NodeInspector
+          node={selectedNode}
+          remote={remote}
+          onChange={updateSelectedNodeData}
+          onDelete={deleteSelectedNode}
+          onRunNode={() => runTask('运行 Query Generate 节点中', runSelectedNode)}
+        />
+
+        {queryNodeResult ? <QuerySetResult result={queryNodeResult.query_set} title="节点生成结果" /> : null}
+        {executeResult ? <ExecutionResult result={executeResult} /> : null}
+      </Panel>
+    </div>
+  );
+}
+
+function StartInputForm({ fields, values, onChange }) {
+  return (
+    <div className="run-box">
+      <h3>Start 输入</h3>
+      {fields.length ? fields.map((field) => {
+        const value = values[field.name] ?? field.default ?? '';
+        if (field.type === 'boolean') {
+          return (
+            <label className="checkbox-row" key={field.name}>
+              <input
+                type="checkbox"
+                checked={Boolean(value)}
+                onChange={(event) => onChange(field.name, event.target.checked)}
+              />
+              <span>{field.name}{field.required ? ' *' : ''}</span>
+            </label>
+          );
+        }
+        return (
+          <Field key={field.name} label={`${field.name}${field.required ? ' *' : ''}`} help={field.type}>
+            <input
+              type={field.type === 'number' ? 'number' : 'text'}
+              value={value}
+              onChange={(event) => onChange(field.name, event.target.value)}
+            />
+          </Field>
+        );
+      }) : (
+        <EmptyState title="无需输入" body="Start 节点没有定义输入参数。" />
+      )}
     </div>
   );
 }
@@ -426,7 +387,25 @@ function QuerySetResult({ result, title }) {
   );
 }
 
-function NodeInspector({ node, templateId, remote, onChange, onDelete, onRunNode }) {
+function ExecutionResult({ result }) {
+  return (
+    <div className="result">
+      <h3>执行结果</h3>
+      <pre>{JSON.stringify(result.outputs || {}, null, 2)}</pre>
+      <h3>Trace</h3>
+      <div className="trace-list">
+        {(result.trace || []).map((item) => (
+          <div className="trace-item" key={item.node_id}>
+            <strong>{item.type}</strong>
+            <StatusPill status={item.status} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function NodeInspector({ node, remote, onChange, onDelete, onRunNode }) {
   if (!node) {
     return <EmptyState title="请选择节点" body="点击画布中的节点即可配置参数。" />;
   }
@@ -434,11 +413,6 @@ function NodeInspector({ node, templateId, remote, onChange, onDelete, onRunNode
   const data = node.data || {};
   const numberValue = (key, fallback) => Number(data[key] ?? fallback);
   const examplesValue = Array.isArray(data.examples) ? data.examples.join('\n') : (data.examples || '');
-  const retrieveHelp = templateId === 'evaluation'
-    ? '留空则继承 Query Generate DB'
-    : templateId === LEGACY_TEMPLATE_ID
-      ? '留空则继承 Source DB'
-      : 'RAG 模板需要选择已索引 DB';
 
   return (
     <div className="node-inspector">
@@ -452,6 +426,10 @@ function NodeInspector({ node, templateId, remote, onChange, onDelete, onRunNode
       <Field label="标签">
         <input value={data.label || ''} onChange={(event) => onChange('label', event.target.value)} />
       </Field>
+
+      {node.type === 'start' ? (
+        <StartFieldEditor fields={Array.isArray(data.fields) ? data.fields : []} onChange={(fields) => onChange('fields', fields)} />
+      ) : null}
 
       {node.type === 'source' ? (
         <Field label="知识库 DB">
@@ -549,9 +527,9 @@ function NodeInspector({ node, templateId, remote, onChange, onDelete, onRunNode
 
       {node.type === 'retrieve' ? (
         <>
-          <Field label="知识库 DB" help={retrieveHelp}>
+          <Field label="知识库 DB" help="留空则继承上游 DB">
             <select value={data.knowledgeBaseId || ''} onChange={(event) => onChange('knowledgeBaseId', event.target.value)}>
-              <option value="">{templateId === 'rag' ? '选择 DB' : '继承上游 DB'}</option>
+              <option value="">继承上游 DB</option>
               {remote.knowledgeBases.map((db) => (
                 <option key={db.id} value={db.id}>
                   {db.name}
@@ -629,6 +607,76 @@ function NodeInspector({ node, templateId, remote, onChange, onDelete, onRunNode
           </Field>
         </>
       ) : null}
+
+      {node.type === 'end' ? (
+        <EndOutputEditor outputs={Array.isArray(data.outputs) ? data.outputs : []} onChange={(outputs) => onChange('outputs', outputs)} />
+      ) : null}
+    </div>
+  );
+}
+
+function StartFieldEditor({ fields, onChange }) {
+  function updateField(index, key, value) {
+    const next = fields.map((field, idx) => idx === index ? { ...field, [key]: value } : field);
+    onChange(next);
+  }
+
+  function addField() {
+    onChange([...fields, { name: `input_${fields.length + 1}`, type: 'string', required: false, default: '' }]);
+  }
+
+  function removeField(index) {
+    onChange(fields.filter((_, idx) => idx !== index));
+  }
+
+  return (
+    <div className="sub-editor">
+      <div className="panel-title-row">
+        <h3>输入参数</h3>
+        <Button icon={Plus} variant="secondary" onClick={addField}>添加</Button>
+      </div>
+      {fields.length ? fields.map((field, index) => (
+        <div className="field-row" key={`${field.name}_${index}`}>
+          <input value={field.name || ''} onChange={(event) => updateField(index, 'name', event.target.value)} placeholder="变量名" />
+          <select value={field.type || 'string'} onChange={(event) => updateField(index, 'type', event.target.value)}>
+            <option value="string">string</option>
+            <option value="number">number</option>
+            <option value="boolean">boolean</option>
+            <option value="json">json</option>
+          </select>
+          <input value={field.default ?? ''} onChange={(event) => updateField(index, 'default', event.target.value)} placeholder="默认值" />
+          <label className="mini-checkbox">
+            <input type="checkbox" checked={Boolean(field.required)} onChange={(event) => updateField(index, 'required', event.target.checked)} />
+            必填
+          </label>
+          <button className="icon-button" onClick={() => removeField(index)} title="删除" type="button">
+            <Trash2 size={15} />
+          </button>
+        </div>
+      )) : <EmptyState title="暂无输入参数" body="执行时不会展示输入表单。" />}
+    </div>
+  );
+}
+
+function EndOutputEditor({ outputs, onChange }) {
+  function updateOutput(index, value) {
+    onChange(outputs.map((item, idx) => idx === index ? value : item));
+  }
+
+  return (
+    <div className="sub-editor">
+      <div className="panel-title-row">
+        <h3>输出字段</h3>
+        <Button icon={Plus} variant="secondary" onClick={() => onChange([...outputs, 'answer'])}>添加</Button>
+      </div>
+      {outputs.length ? outputs.map((output, index) => (
+        <div className="output-row" key={`${output}_${index}`}>
+          <input value={output || ''} onChange={(event) => updateOutput(index, event.target.value)} placeholder="state key，如 answer" />
+          <button className="icon-button" onClick={() => onChange(outputs.filter((_, idx) => idx !== index))} title="删除" type="button">
+            <Trash2 size={15} />
+          </button>
+        </div>
+      )) : <EmptyState title="默认输出" body="未配置时返回当前执行结果摘要。" />}
     </div>
   );
 }

@@ -13,11 +13,7 @@ export function EvaluationPage({ remote, runTask }) {
     [remote.querySets, querySetId],
   );
   const runnableWorkflows = useMemo(
-    () => remote.workflows.filter((workflow) => {
-      const templateId = workflow.graph?.templateId;
-      const types = new Set((workflow.graph?.nodes || []).map((node) => node.type));
-      return templateId === 'rag' || (!templateId && types.has('source') && types.has('retrieve'));
-    }),
+    () => remote.workflows.filter((workflow) => workflow.runtime_capable),
     [remote.workflows],
   );
 

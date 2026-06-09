@@ -1,5 +1,11 @@
 export const nodeCatalog = [
   {
+    type: 'start',
+    label: 'Start',
+    caption: '定义输入参数',
+    defaults: { label: 'Start', fields: [] },
+  },
+  {
     type: 'source',
     label: 'Source DB',
     caption: '选择 name-db',
@@ -64,16 +70,27 @@ export const nodeCatalog = [
     caption: 'reference-free 评测',
     defaults: { label: 'RAGAS Eval', metricPreset: 'reference_free', limit: '' },
   },
+  {
+    type: 'end',
+    label: 'End',
+    caption: '返回输出',
+    defaults: { label: 'End', outputs: [] },
+  },
 ];
 
 export const nodeMeta = Object.fromEntries(nodeCatalog.map((item) => [item.type, item]));
 
-export function buildNode(type, index = 0) {
+export function buildNode(type, index = 0, position = null) {
   const meta = nodeMeta[type];
   return {
-    id: `${type}_${Date.now()}`,
+    id: `${type}_${Date.now()}_${Math.round(Math.random() * 10000)}`,
     type,
-    position: { x: 80 + index * 150, y: 120 },
-    data: { ...meta.defaults },
+    position: position || { x: 80 + index * 150, y: 120 },
+    data: {
+      ...meta.defaults,
+      fields: meta.defaults.fields ? [...meta.defaults.fields] : undefined,
+      outputs: meta.defaults.outputs ? [...meta.defaults.outputs] : undefined,
+      examples: meta.defaults.examples ? [...meta.defaults.examples] : undefined,
+    },
   };
 }

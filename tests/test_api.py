@@ -204,7 +204,26 @@ def test_api_import_index_generate_and_eval(tmp_path):
 
     templates_response = client.get("/api/workflows/templates")
     assert templates_response.status_code == 200
-    assert {item["id"] for item in templates_response.json()} == {"offline_db", "rag", "evaluation"}
+    assert [item["id"] for item in templates_response.json()] == ["blank", "offline_db", "rag", "evaluation"]
+
+    blank_response = client.get("/api/workflows/default?template_id=blank")
+    assert blank_response.status_code == 200
+    assert blank_response.json()["graph"]["templateId"] == "blank"
+
+    blank_workflow_response = client.post(
+        "/api/workflows",
+        json={"name": "Blank draft", "graph": blank_response.json()["graph"]},
+    )
+    assert blank_workflow_response.status_code == 200
+    blank_workflow_id = blank_workflow_response.json()["id"]
+    blank_validate_response = client.post(
+        "/api/workflows/validate",
+        json={"name": "Blank draft", "graph": blank_response.json()["graph"]},
+    )
+    assert blank_validate_response.status_code == 200
+    assert blank_validate_response.json()["ok"] is False
+    blank_execute_response = client.post(f"/api/workflows/{blank_workflow_id}/execute", json={"inputs": {}})
+    assert blank_execute_response.status_code == 400
 
     default_rag_response = client.get("/api/workflows/default?template_id=rag")
     assert default_rag_response.status_code == 200
@@ -232,6 +251,12 @@ def test_api_import_index_generate_and_eval(tmp_path):
     )
     assert rag_run_response.status_code == 200
     assert "fake answer" in rag_run_response.json()["answer"]
+    rag_execute_response = client.post(
+        f"/api/workflows/{rag_workflow_id}/execute",
+        json={"inputs": {"question": "How does execute work?"}},
+    )
+    assert rag_execute_response.status_code == 200
+    assert "fake answer" in rag_execute_response.json()["outputs"]["answer"]
 
     evaluation_workflow_response = client.post(
         "/api/workflows",
@@ -256,3 +281,4 @@ def test_api_import_index_generate_and_eval(tmp_path):
     assert rag_workflow_id in runtime_ids
     assert offline_workflow_id not in runtime_ids
     assert evaluation_workflow["id"] not in runtime_ids
+    assert blank_workflow_id not in runtime_ids

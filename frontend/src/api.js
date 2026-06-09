@@ -50,7 +50,7 @@ export const api = {
       body: JSON.stringify({ overwrite }),
     }),
   listWorkflowTemplates: () => request('/api/workflows/templates'),
-  getDefaultWorkflow: (templateId = 'rag') => request(`/api/workflows/default?template_id=${encodeURIComponent(templateId)}`),
+  getDefaultWorkflow: (templateId = 'blank') => request(`/api/workflows/default?template_id=${encodeURIComponent(templateId)}`),
   listWorkflows: () => request('/api/workflows'),
   saveWorkflow: (payload) =>
     request('/api/workflows', { method: 'POST', body: JSON.stringify(payload) }),
@@ -60,6 +60,11 @@ export const api = {
     request(`/api/workflows/${workflowId}/prepare`, { method: 'POST' }),
   runWorkflow: (workflowId, payload) =>
     request(`/api/workflows/${workflowId}/run`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  executeWorkflow: (workflowId, payload) =>
+    request(`/api/workflows/${workflowId}/execute`, {
       method: 'POST',
       body: JSON.stringify(payload),
     }),

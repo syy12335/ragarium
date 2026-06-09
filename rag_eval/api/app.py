@@ -58,6 +58,10 @@ class WorkflowRunRequest(BaseModel):
     k: int = 3
 
 
+class WorkflowExecuteRequest(BaseModel):
+    inputs: Dict[str, Any] = {}
+
+
 class RuntimeInvokeRequest(BaseModel):
     question: str = ""
 
@@ -204,8 +208,42 @@ def create_app(
     def health() -> Dict[str, str]:
         return {"status": "ok"}
 
+    def workflow_capabilities(workflow: Dict[str, Any]) -> Dict[str, Any]:
+        graph = workflow["graph"]
+        item = {
+            "template_id": graph.get("templateId") or graph.get("template_id"),
+            "executable": False,
+            "runtime_capable": False,
+            "prepare_capable": False,
+            "evaluation_capable": False,
+            "start_fields": [],
+            "execution_error": None,
+        }
+        try:
+            structure = workflow_engine.validate_graph_structure(graph)
+            item["template_id"] = structure.template_id
+            item["start_fields"] = workflow_engine.get_start_fields(graph)
+        except Exception as exc:
+            item["execution_error"] = str(exc)
+            return item
+        try:
+            workflow_engine.validate_executable_graph(graph)
+            item["executable"] = True
+            item["runtime_capable"] = workflow_engine.is_runtime_graph(graph)
+            item["prepare_capable"] = workflow_engine.is_prepare_graph(graph)
+            item["evaluation_capable"] = workflow_engine.is_evaluation_graph(graph)
+        except Exception as exc:
+            item["execution_error"] = str(exc)
+        return item
+
+    def with_workflow_capabilities(workflow: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            **workflow,
+            **workflow_capabilities(workflow),
+        }
+
     def runtime_top_k(graph: Dict[str, Any]) -> int:
-        validation = workflow_engine.validate_graph(graph)
+        validation = workflow_engine.validate_graph_structure(graph)
         return workflow_engine.get_top_k_from_validation(validation)
 
     def runtime_workflow_item(workflow: Dict[str, Any]) -> Dict[str, Any]:
@@ -223,10 +261,10 @@ def create_app(
             "error": None,
         }
         try:
-            validation = workflow_engine.validate_graph(workflow["graph"])
+            validation = workflow_engine.validate_executable_graph(workflow["graph"])
             item["template_id"] = validation.template_id
-            if validation.template_id not in {RAG_TEMPLATE_ID, LEGACY_FULL_RAG_TEMPLATE_ID}:
-                raise WorkflowValidationError("Workflow is not a runtime RAG template")
+            if not workflow_engine.is_runtime_graph(workflow["graph"]):
+                raise WorkflowValidationError("Workflow is not a runtime RAG graph")
             kb_id = workflow_engine.resolve_knowledge_base_id(workflow["graph"])
             kb = store.get_knowledge_base(kb_id)
             item.update(
@@ -263,12 +301,12 @@ def create_app(
             }
 
         try:
-            validation = workflow_engine.validate_graph(workflow["graph"])
-            if validation.template_id not in {RAG_TEMPLATE_ID, LEGACY_FULL_RAG_TEMPLATE_ID}:
+            validation = workflow_engine.validate_executable_graph(workflow["graph"])
+            if not workflow_engine.is_runtime_graph(workflow["graph"]):
                 return {
                     "error": _runtime_error(
                         "workflow_not_callable",
-                        "Runtime API 只支持 RAG Workflow",
+                        "Runtime API 只支持可从 question 执行到 Answer 的 RAG graph",
                         {"workflow_id": workflow_id, "template_id": validation.template_id},
                     )
                 }
@@ -386,10 +424,10 @@ def create_app(
         workflows = []
         for workflow in store.list_workflows():
             try:
-                validation = workflow_engine.validate_graph(workflow["graph"])
+                workflow_engine.validate_executable_graph(workflow["graph"])
             except Exception:
                 continue
-            if validation.template_id in {RAG_TEMPLATE_ID, LEGACY_FULL_RAG_TEMPLATE_ID}:
+            if workflow_engine.is_runtime_graph(workflow["graph"]):
                 workflows.append(runtime_workflow_item(workflow))
         return _runtime_success(
             {"workflows": workflows},
@@ -632,9 +670,13 @@ def create_app(
         workflow: Dict[str, Any],
         limit: Optional[int],
     ) -> Dict[str, Any]:
-        validation = workflow_engine.validate_graph(workflow["graph"])
-        if validation.template_id not in {RAG_TEMPLATE_ID, LEGACY_FULL_RAG_TEMPLATE_ID, EVALUATION_TEMPLATE_ID}:
-            raise WorkflowValidationError("Eval run requires a RAG or evaluation workflow")
+        workflow_engine.validate_executable_graph(workflow["graph"])
+        types = {
+            node.get("type")
+            for node in workflow_engine.validate_executable_graph(workflow["graph"]).ordered_nodes
+        }
+        if not {"retrieve", "prompt_llm", "answer"}.issubset(types):
+            raise WorkflowValidationError("Eval run requires a graph with Retrieve, Prompt / LLM and Answer nodes")
         kb_id = workflow_engine.resolve_knowledge_base_id(workflow["graph"])
         kb = store.get_knowledge_base(kb_id)
         if kb["index_status"] != "ready":
@@ -659,6 +701,203 @@ def create_app(
             output_csv=result.csv_path,
         )
 
+    def summarize_node_output(node_type: str, state: Dict[str, Any]) -> Dict[str, Any]:
+        if node_type == "embed_index":
+            result = state.get("index_result") or {}
+            return {
+                "knowledge_base_id": result.get("knowledge_base_id"),
+                "chunk_count": result.get("chunk_count"),
+                "index_status": result.get("index_status"),
+            }
+        if node_type == "query_generate":
+            query_set = state.get("query_set") or {}
+            return {
+                "query_set_id": query_set.get("id"),
+                "query_count": len(query_set.get("queries") or []),
+            }
+        if node_type == "answer":
+            return {
+                "question": state.get("question"),
+                "answer": state.get("answer"),
+                "context_count": len(state.get("contexts") or []),
+            }
+        if node_type == "ragas_eval":
+            eval_run = state.get("eval_run") or {}
+            return {
+                "eval_run_id": eval_run.get("id"),
+                "status": eval_run.get("status"),
+            }
+        return {"ok": True}
+
+    def default_end_outputs(state: Dict[str, Any]) -> Dict[str, Any]:
+        outputs: Dict[str, Any] = {}
+        for key in [
+            "knowledge_base_id",
+            "index_result",
+            "query_set",
+            "question",
+            "answer",
+            "contexts",
+            "eval_run",
+        ]:
+            if key in state:
+                outputs[key] = state[key]
+        return outputs
+
+    def collect_end_outputs(node: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+        outputs = (node.get("data") or {}).get("outputs") or []
+        if not outputs:
+            return default_end_outputs(state)
+        collected: Dict[str, Any] = {}
+        for output in outputs:
+            if isinstance(output, str):
+                name = output
+                source = output
+            else:
+                name = str(output.get("name") or output.get("key") or "").strip()
+                source = str(output.get("source") or output.get("key") or name).strip()
+            if not name:
+                continue
+            collected[name] = state.get(source)
+        return collected
+
+    def execute_workflow(workflow: Dict[str, Any], inputs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        graph = workflow["graph"]
+        validation = workflow_engine.validate_executable_graph(graph)
+        if validation.is_legacy:
+            question = (inputs or {}).get("question")
+            if not question:
+                raise WorkflowValidationError("legacy RAG workflow requires question input")
+            kb_id = workflow_engine.resolve_knowledge_base_id(graph)
+            kb = store.get_knowledge_base(kb_id)
+            if kb["index_status"] != "ready":
+                raise ValueError("knowledge base index is not ready")
+            result = workflow_engine.run_question(
+                graph,
+                question=str(question),
+                vector_manager=vector_builder_factory().manager,
+                collection_name=kb["collection_name"],
+                config_path=config_path,
+            )
+            return {
+                "workflow_id": workflow["id"],
+                "outputs": result,
+                "trace": [{"node_id": "legacy_full_rag", "type": "legacy_full_rag", "status": "completed"}],
+                "metadata": {"workflow_id": workflow["id"], "legacy": True},
+            }
+
+        state: Dict[str, Any] = {}
+        trace = []
+        for node in validation.ordered_nodes:
+            node_id = node["id"]
+            node_type = node["type"]
+            data = node.get("data") or {}
+
+            if node_type == "start":
+                state.update(workflow_engine.resolve_start_inputs(graph, inputs or {}))
+            elif node_type == "source":
+                kb_id = workflow_engine.get_source_knowledge_base_id_from_validation(validation)
+                kb = store.get_knowledge_base(kb_id)
+                state["knowledge_base_id"] = kb_id
+                state["collection_name"] = kb["collection_name"]
+            elif node_type == "parse":
+                state["parser"] = data.get("parser") or "auto"
+            elif node_type == "chunk":
+                state["chunk_config"] = workflow_engine.get_chunk_config_from_validation(validation)
+            elif node_type == "embed_index":
+                kb_id = state.get("knowledge_base_id")
+                if not kb_id:
+                    raise WorkflowValidationError("Embed / Index node requires upstream Source DB")
+                chunk_config = state.get("chunk_config") or {"chunk_size": 900, "chunk_overlap": 120}
+                store.update_knowledge_base_index_status(
+                    kb_id,
+                    status="processing",
+                    error=None,
+                    chunk_config=chunk_config,
+                )
+                ingestion_service.reprocess_knowledge_base_sources(
+                    kb_id,
+                    chunk_size=chunk_config["chunk_size"],
+                    chunk_overlap=chunk_config["chunk_overlap"],
+                )
+                index_result = build_knowledge_base_index(
+                    kb_id,
+                    overwrite=data.get("overwrite", True) is not False,
+                    chunk_config=chunk_config,
+                )
+                state["index_result"] = index_result
+            elif node_type == "query_generate":
+                query_set = run_query_generate_node_for_workflow(workflow, node_id=node_id)
+                state["query_set"] = query_set
+                state["queries"] = query_set["queries"]
+                state["knowledge_base_id"] = query_set["knowledge_base_id"]
+            elif node_type == "retrieve":
+                kb_id = workflow_engine.get_retrieve_knowledge_base_id_from_validation(validation, required=False)
+                if kb_id is not None:
+                    state["knowledge_base_id"] = kb_id
+                if "knowledge_base_id" not in state:
+                    raise WorkflowValidationError("Retrieve node requires selected or upstream knowledge DB")
+                state["top_k"] = workflow_engine.get_top_k_from_validation(validation)
+            elif node_type == "prompt_llm":
+                state["prompt"] = data.get("prompt") or ""
+            elif node_type == "answer":
+                if state.get("queries"):
+                    state["answer_mode"] = "batch_for_eval"
+                else:
+                    question = state.get("question")
+                    if not question:
+                        raise WorkflowValidationError("Answer node requires question input")
+                    kb = store.get_knowledge_base(int(state["knowledge_base_id"]))
+                    if kb["index_status"] != "ready":
+                        raise ValueError("knowledge base index is not ready")
+                    result = workflow_engine.run_question(
+                        graph,
+                        question=str(question),
+                        vector_manager=vector_builder_factory().manager,
+                        collection_name=kb["collection_name"],
+                        config_path=config_path,
+                        k=int(state.get("top_k") or 3),
+                    )
+                    state["question"] = result.get("question") or str(question)
+                    state["answer"] = result.get("answer") or result.get("generation") or ""
+                    state["contexts"] = result.get("contexts") or []
+            elif node_type == "ragas_eval":
+                query_set = state.get("query_set")
+                if not query_set:
+                    raise WorkflowValidationError("RAGAS Eval node requires upstream Query Generate")
+                eval_config = workflow_engine.get_eval_config_from_validation(validation)
+                eval_run = create_eval_run_from_query_set(
+                    query_set=query_set,
+                    workflow=workflow,
+                    limit=eval_config["limit"],
+                )
+                state["eval_run"] = eval_run
+            elif node_type == "end":
+                state["outputs"] = collect_end_outputs(node, state)
+            else:
+                raise WorkflowValidationError(f"unsupported executable node type: {node_type}")
+
+            trace.append(
+                {
+                    "node_id": node_id,
+                    "type": node_type,
+                    "status": "completed",
+                    "output": summarize_node_output(node_type, state),
+                }
+            )
+
+        outputs = state.get("outputs") or default_end_outputs(state)
+        return {
+            "workflow_id": workflow["id"],
+            "outputs": outputs,
+            "trace": trace,
+            "metadata": {
+                "workflow_id": workflow["id"],
+                "template_id": validation.template_id,
+                "node_count": len(validation.ordered_nodes),
+            },
+        }
+
     @app.get("/api/workflows/templates")
     def list_workflow_templates() -> List[Dict[str, Any]]:
         return get_workflow_templates()
@@ -674,21 +913,36 @@ def create_app(
 
     @app.get("/api/workflows")
     def list_workflows() -> List[Dict[str, Any]]:
-        return store.list_workflows()
+        return [with_workflow_capabilities(workflow) for workflow in store.list_workflows()]
 
     @app.post("/api/workflows/validate")
     def validate_workflow(payload: WorkflowRequest) -> Dict[str, Any]:
         try:
-            workflow_engine.validate_graph(payload.graph)
-            return {"ok": True}
+            validation = workflow_engine.validate_executable_graph(payload.graph)
+            return {
+                "ok": True,
+                "template_id": validation.template_id,
+                "node_count": len(validation.ordered_nodes),
+                "runtime_capable": workflow_engine.is_runtime_graph(payload.graph),
+                "prepare_capable": workflow_engine.is_prepare_graph(payload.graph),
+                "evaluation_capable": workflow_engine.is_evaluation_graph(payload.graph),
+            }
         except Exception as exc:
-            raise _http_error(exc)
+            return {"ok": False, "error": str(exc)}
 
     @app.post("/api/workflows")
     def save_workflow(payload: WorkflowRequest) -> Dict[str, Any]:
         try:
-            workflow_engine.validate_graph(payload.graph)
-            return store.upsert_workflow(payload.name, payload.graph, payload.id)
+            workflow_engine.validate_graph_structure(payload.graph)
+            return with_workflow_capabilities(store.upsert_workflow(payload.name, payload.graph, payload.id))
+        except Exception as exc:
+            raise _http_error(exc)
+
+    @app.post("/api/workflows/{workflow_id}/execute")
+    def execute_workflow_route(workflow_id: int, payload: Optional[WorkflowExecuteRequest] = None) -> Dict[str, Any]:
+        try:
+            workflow = store.get_workflow(workflow_id)
+            return execute_workflow(workflow, inputs=(payload.inputs if payload else {}))
         except Exception as exc:
             raise _http_error(exc)
 
@@ -697,6 +951,13 @@ def create_app(
         source_kb_id: Optional[int] = None
         try:
             workflow = store.get_workflow(workflow_id)
+            if workflow_engine.validate_graph_structure(workflow["graph"]).nodes_by_type.get("start"):
+                result = execute_workflow(workflow, inputs={})
+                index_result = result["outputs"].get("index_result") or {}
+                return {
+                    "workflow_id": workflow_id,
+                    **index_result,
+                }
             if not workflow_engine.is_prepare_graph(workflow["graph"]):
                 raise WorkflowValidationError("prepare only supports offline DB workflows")
             source_kb_id = workflow_engine.get_source_knowledge_base_id(workflow["graph"])
@@ -743,6 +1004,14 @@ def create_app(
     def run_workflow(workflow_id: int, payload: WorkflowRunRequest) -> Dict[str, Any]:
         try:
             workflow = store.get_workflow(workflow_id)
+            if workflow_engine.validate_graph_structure(workflow["graph"]).nodes_by_type.get("start"):
+                result = execute_workflow(workflow, inputs={"question": payload.question})
+                outputs = result["outputs"]
+                return {
+                    "question": outputs.get("question") or payload.question,
+                    "answer": outputs.get("answer") or outputs.get("generation") or "",
+                    "contexts": outputs.get("contexts") or [],
+                }
             if not workflow_engine.is_runtime_graph(workflow["graph"]):
                 raise WorkflowValidationError("run only supports RAG workflows")
             kb_id = _resolve_workflow_knowledge_base_id(
@@ -784,6 +1053,15 @@ def create_app(
         query_set: Optional[Dict[str, Any]] = None
         try:
             workflow = store.get_workflow(workflow_id)
+            if workflow_engine.validate_graph_structure(workflow["graph"]).nodes_by_type.get("start"):
+                result = execute_workflow(workflow, inputs={})
+                return {
+                    "workflow_id": workflow_id,
+                    "query_set": result["outputs"].get("query_set"),
+                    "eval_run": result["outputs"].get("eval_run"),
+                    "trace": result["trace"],
+                    "metadata": result["metadata"],
+                }
             if not workflow_engine.is_evaluation_graph(workflow["graph"]):
                 raise WorkflowValidationError("evaluate only supports evaluation workflows")
             eval_config = workflow_engine.get_eval_config(workflow["graph"])

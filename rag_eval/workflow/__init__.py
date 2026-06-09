@@ -1,4 +1,5 @@
 from .engine import (
+    BLANK_TEMPLATE_ID,
     DEFAULT_TEMPLATE_ID,
     DEFAULT_WORKFLOW_GRAPH,
     EVALUATION_TEMPLATE_ID,
@@ -13,6 +14,7 @@ from .engine import (
 )
 
 __all__ = [
+    "BLANK_TEMPLATE_ID",
     "DEFAULT_TEMPLATE_ID",
     "DEFAULT_WORKFLOW_GRAPH",
     "EVALUATION_TEMPLATE_ID",

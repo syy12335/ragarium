@@ -103,9 +103,22 @@ def test_all_workflow_templates_validate_after_required_db_is_selected():
     engine = WorkflowEngine()
 
     for template in get_workflow_templates():
+        if template["id"] == "blank":
+            result = engine.validate_graph_structure(template["graph"])
+            assert result.template_id == "blank"
+            continue
         graph = configured_template_graph(template["id"])
         result = engine.validate_graph(graph)
         assert result.template_id == template["id"]
+
+
+def test_blank_graph_is_a_draft_but_not_executable():
+    graph = get_default_workflow_graph("blank")
+    engine = WorkflowEngine()
+
+    assert engine.validate_graph_structure(graph).template_id == "blank"
+    with pytest.raises(WorkflowValidationError, match="at least one executable node"):
+        engine.validate_graph(graph)
 
 
 def test_rag_template_requires_retrieve_db():
