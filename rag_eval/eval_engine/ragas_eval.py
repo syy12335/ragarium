@@ -24,6 +24,7 @@ import pandas as pd
 from utils import YamlConfigReader
 from rag_eval.eval_engine.rag_batch_runner import RagEvalRecord
 from rag_eval.eval_engine.eval_result import EvalResult
+from rag_eval.eval_engine.metric_presets import infer_metric_preset, resolve_ragas_metrics
 
 
 def _build_ragas_dataset(records: List[RagEvalRecord]) -> Dataset:
@@ -202,6 +203,7 @@ def run_ragas_evaluation(
     records: List[RagEvalRecord],
     config_path: str = "config/application.yaml",
     metrics: Optional[Sequence[Any]] = None,
+    metric_preset: Optional[str] = None,
 ) -> EvalResult:
     """
     以函数方式执行一次完整的 RAGAS 评估流程。
@@ -215,8 +217,11 @@ def run_ragas_evaluation(
 
       metrics:
         要使用的 RAGAS 指标列表。
-        若为 None，则默认使用：
-          faithfulness, answer_relevancy, context_precision, context_recall
+        若为 None，则根据 metric_preset 或样本是否含 ground_truth 自动选择。
+
+      metric_preset:
+        "reference_free" 只跑 faithfulness / answer_relevancy，适合 query-only 数据集。
+        "full" 跑 faithfulness / answer_relevancy / context_precision / context_recall。
 
     返回：
       EvalResult 对象，封装整体指标、逐样本结果、Dataset、CSV 路径等信息。
@@ -245,7 +250,8 @@ def run_ragas_evaluation(
     eval_llm, eval_embeddings = _build_ragas_components(config)
 
     if metrics is None:
-        metrics = [faithfulness, answer_relevancy, context_precision, context_recall]
+        preset = metric_preset or infer_metric_preset(records)
+        metrics = resolve_ragas_metrics(preset)
 
     for m in metrics:
         if hasattr(m, "embeddings"):
@@ -310,9 +316,11 @@ class RagasEvaluator:
         self,
         config_path: str = "config/application.yaml",
         metrics: Optional[Sequence[Any]] = None,
+        metric_preset: Optional[str] = None,
     ):
         self.config_path = config_path
         self.metrics = metrics
+        self.metric_preset = metric_preset
 
     def evaluate(self, records: List[RagEvalRecord]) -> EvalResult:
         """
@@ -322,4 +330,5 @@ class RagasEvaluator:
             records=records,
             config_path=self.config_path,
             metrics=self.metrics,
+            metric_preset=self.metric_preset,
         )

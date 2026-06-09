@@ -35,6 +35,7 @@ class EvalEngine:
         self,
         config_path: str = "config/application.yaml",
         metrics: Optional[Sequence[Any]] = None,
+        metric_preset: Optional[str] = None,
         limit: Optional[int] = None,
         show_progress: bool = True,
     ) -> None:
@@ -64,6 +65,7 @@ class EvalEngine:
         """
         self.config_path = config_path
         self.metrics = metrics
+        self.metric_preset = metric_preset
         self.show_progress = show_progress
 
         # 1）调用方显式传入 limit 的情况：0 表示不限制
@@ -150,6 +152,7 @@ class EvalEngine:
         evaluator = RagasEvaluator(
             config_path=self.config_path,
             metrics=self.metrics,
+            metric_preset=self.metric_preset,
         )
         result: EvalResult = evaluator.evaluate(records)
 
