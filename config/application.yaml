@@ -75,11 +75,14 @@ vector_store:
   # VectorDatabaseBuilder 默认使用这个名称创建 / 复用 collection
   collection_name: "cmrc2018_default"
 
+ingestion:
+  chunk_size: 900
+  chunk_overlap: 120
+
 evaluation:
   # RAGAS 评估结果 CSV 相对路径（相对于 project-root）
   output_csv: "datasets/processed/ragas_result.csv"
 
   # 可选：样本数上限，0 或不写表示不限（EvalEngine 会读取）
   sample_limit: 0
-
 
