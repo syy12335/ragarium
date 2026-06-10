@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  ArrowLeft,
   PlugZap,
+  Rocket,
 } from 'lucide-react';
-import { api } from '../api.js';
-import { Panel } from '../components/ui.jsx';
+import { API_BASE, api } from '../api.js';
+import { Button, Panel, StatusPill } from '../components/ui.jsx';
 
 const workflowSteps = [
   {
@@ -33,14 +35,17 @@ const workflowSteps = [
   },
   {
     title: '部署 API 调用',
-    body: '当 RAG Graph 可调用后，用 Runtime API 从其他语言通过 HTTP 接入 question -> answer。',
-    target: 'workflow',
+    body: '一键检查并启动本地 Runtime API，然后查看其他语言可直接使用的 HTTP 调用方式。',
+    action: 'deploy',
     icon: PlugZap,
   },
 ];
 
-export function HomePage({ remote, onNavigate }) {
+export function HomePage({ remote, onNavigate, runTask }) {
+  const [view, setView] = useState('landing');
   const [capabilities, setCapabilities] = useState(null);
+  const [deployment, setDeployment] = useState(null);
+  const [deployError, setDeployError] = useState('');
 
   useEffect(() => {
     api.runtimeCapabilities().then(setCapabilities).catch(() => setCapabilities(null));
@@ -65,13 +70,136 @@ export function HomePage({ remote, onNavigate }) {
     [remote.workflows, remote.knowledgeBases],
   );
 
+  async function deployRuntime() {
+    setDeployError('');
+    const result = await runTask('部署 Runtime API', api.startLocalDeployment);
+    if (result) {
+      setDeployment(result);
+      return;
+    }
+    setDeployError('部署失败，请查看左下角状态信息。');
+  }
+
+  if (view === 'deploy') {
+    const output = deployment?.output;
+    const metadata = deployment?.metadata || {};
+    const examples = output?.examples || {};
+    const baseUrl = output?.base_url || API_BASE;
+    const deployedWorkflows = output?.workflows || callableWorkflows;
+
+    return (
+      <div className="deployment-page">
+        <div className="editor-header action-return-bar">
+          <Button icon={ArrowLeft} variant="secondary" onClick={() => setView('landing')}>
+            返回导航
+          </Button>
+          <div>
+            <strong>部署 API 调用</strong>
+            <span>先把本地 Runtime API 准备好，再给其他语言按 HTTP/JSON 调用。</span>
+          </div>
+        </div>
+
+        <div className="deployment-layout">
+          <Panel
+            title="一键部署"
+            actions={(
+              <Button icon={Rocket} onClick={deployRuntime}>
+                一键部署
+              </Button>
+            )}
+          >
+            <div className="deploy-summary">
+              <div>
+                <span>服务地址</span>
+                <strong>{baseUrl}</strong>
+              </div>
+              <div>
+                <span>Contract</span>
+                <strong>{output?.contract_version || capabilities?.output?.contract_version || 'v1'}</strong>
+              </div>
+              <div>
+                <span>可调用 Workflow</span>
+                <strong>{metadata.ready_workflow_count ?? callableWorkflows.length}</strong>
+              </div>
+            </div>
+
+            <div className="hint-box">
+              <strong>{output?.message || '点击“一键部署”后会检查本地 Runtime API，并返回可调用的 Workflow 与调用示例。'}</strong>
+              <span>如果没有可调用 Workflow，请先完成数据索引，并在 Workflow 中保存一个从 question 到 Answer 的 RAG Graph。</span>
+            </div>
+            {deployError ? <p className="error-text">{deployError}</p> : null}
+          </Panel>
+
+          {deployment ? (
+            <Panel title="怎么用 API 调用">
+              <div className="api-callout">
+                <strong>调用顺序</strong>
+                <span>先查询可调用 Workflow，拿到 workflow_id 后，再调用 invoke 或 batch。</span>
+              </div>
+
+              <div className="api-example-grid">
+                <div>
+                  <strong>1. 查看可调用 Workflow</strong>
+                  <pre><code>{examples.list_workflows || `curl -s ${baseUrl}/api/runtime/workflows`}</code></pre>
+                </div>
+                <div>
+                  <strong>2. 单条问答</strong>
+                  <pre><code>{examples.invoke || `curl -X POST ${baseUrl}/api/runtime/workflows/1/invoke -H 'Content-Type: application/json' -d '{"question":"如何导入文档？"}'`}</code></pre>
+                </div>
+                <div>
+                  <strong>3. 批量问答</strong>
+                  <pre><code>{examples.batch || `curl -X POST ${baseUrl}/api/runtime/workflows/1/batch -H 'Content-Type: application/json' -d '{"questions":["如何导入文档？","如何运行评测？"]}'`}</code></pre>
+                </div>
+              </div>
+
+              <div className="runtime-workflow-list">
+                <strong>当前 Runtime Graph</strong>
+                {deployedWorkflows.length ? (
+                  deployedWorkflows.map((workflow) => (
+                    <div className="runtime-workflow-row" key={workflow.workflow_id || workflow.id}>
+                      <div>
+                        <strong>{workflow.name}</strong>
+                        <span>workflow_id: {workflow.workflow_id || workflow.id}</span>
+                      </div>
+                      <StatusPill status={workflow.can_run ? 'ready' : workflow.index_status || 'not_indexed'} />
+                    </div>
+                  ))
+                ) : (
+                  <div className="hint-box">
+                    <strong>暂无可调用 Workflow</strong>
+                    <span>需要先准备一个已索引 DB，并保存可从 question 执行到 Answer 的 RAG Graph。</span>
+                  </div>
+                )}
+              </div>
+            </Panel>
+          ) : (
+            <Panel title="部署后会展示">
+              <div className="hint-box">
+                <strong>API 调用示例会在这里展开。</strong>
+                <span>包括 workflow 列表、单条 invoke、批量 batch，以及当前可调用 Graph 的状态。</span>
+              </div>
+            </Panel>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="home-dashboard">
       <Panel title="常见工作顺序" className="home-main-panel">
         <ol className="workflow-steps">
           {workflowSteps.map((step, index) => (
             <li key={step.title}>
-              <button onClick={() => onNavigate(step.target)}>
+              <button
+                onClick={() => {
+                  if (step.action === 'deploy') {
+                    setView('deploy');
+                    return;
+                  }
+                  onNavigate(step.target, { returnToHome: true, label: step.title });
+                }}
+              >
                 <span>{index + 1}</span>
                 <strong>{step.title}</strong>
                 <small>{step.body}</small>

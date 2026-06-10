@@ -83,6 +83,7 @@ export const api = {
   listEvalRuns: () => request('/api/eval-runs'),
   createEvalRun: (payload) =>
     request('/api/eval-runs', { method: 'POST', body: JSON.stringify(payload) }),
+  startLocalDeployment: () => request('/api/deployment/local/start', { method: 'POST' }),
   runtimeCapabilities: () => request('/api/runtime/capabilities'),
   runtimeWorkflows: () => request('/api/runtime/workflows'),
 };

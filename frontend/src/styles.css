@@ -456,6 +456,78 @@ select:focus {
   min-width: 0;
 }
 
+.action-return-bar {
+  margin-bottom: 12px;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #ffffff;
+}
+
+.deployment-page {
+  display: grid;
+  gap: 14px;
+}
+
+.deployment-layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.82fr) minmax(520px, 1.18fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.deploy-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.deploy-summary > div,
+.api-callout,
+.runtime-workflow-row {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 11px;
+  background: #f8fafc;
+}
+
+.deploy-summary span,
+.api-callout span,
+.runtime-workflow-row span {
+  color: #637286;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.deploy-summary strong {
+  overflow-wrap: anywhere;
+}
+
+.api-example-grid {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.api-example-grid > div {
+  display: grid;
+  gap: 6px;
+}
+
+.runtime-workflow-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.runtime-workflow-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
 .endpoint-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1354,6 +1426,10 @@ pre {
     grid-template-columns: 220px minmax(420px, 1fr);
   }
 
+  .deployment-layout {
+    grid-template-columns: 1fr;
+  }
+
   .inspector-panel {
     grid-column: 1 / -1;
   }
@@ -1365,6 +1441,7 @@ pre {
   .home-dashboard,
   .data-layout,
   .data-entry-layout,
+  .deployment-layout,
   .two-column,
   .detail-grid,
   .config-layout,
@@ -1405,6 +1482,7 @@ pre {
   .db-summary,
   .runtime-card,
   .compact-overview,
+  .deploy-summary,
   .data-entry-grid,
   .endpoint-list,
   .provider-grid,
@@ -1441,6 +1519,7 @@ pre {
   .endpoint-list,
   .db-summary,
   .compact-overview,
+  .deploy-summary,
   .data-entry-grid,
   .template-grid,
   .graph-template-grid,

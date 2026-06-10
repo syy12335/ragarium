@@ -434,6 +434,53 @@ def create_app(
             {"count": len(workflows)},
         )
 
+    @app.post("/api/deployment/local/start")
+    def deploy_local_runtime() -> Dict[str, Any]:
+        base_url = "http://127.0.0.1:8000"
+        workflows = []
+        for workflow in store.list_workflows():
+            try:
+                workflow_engine.validate_executable_graph(workflow["graph"])
+            except Exception:
+                continue
+            if workflow_engine.is_runtime_graph(workflow["graph"]):
+                workflows.append(runtime_workflow_item(workflow))
+
+        ready_count = sum(1 for workflow in workflows if workflow.get("can_run"))
+        return _runtime_success(
+            {
+                "status": "running",
+                "message": "本地 Runtime API 已就绪，可通过 HTTP/JSON 从其他语言调用。",
+                "contract_version": "v1",
+                "base_url": base_url,
+                "endpoints": {
+                    "capabilities": "GET /api/runtime/capabilities",
+                    "workflows": "GET /api/runtime/workflows",
+                    "invoke": "POST /api/runtime/workflows/{workflow_id}/invoke",
+                    "batch": "POST /api/runtime/workflows/{workflow_id}/batch",
+                },
+                "examples": {
+                    "list_workflows": f"curl -s {base_url}/api/runtime/workflows",
+                    "invoke": (
+                        f"curl -X POST {base_url}/api/runtime/workflows/1/invoke "
+                        "-H 'Content-Type: application/json' "
+                        "-d '{\"question\":\"如何导入文档？\"}'"
+                    ),
+                    "batch": (
+                        f"curl -X POST {base_url}/api/runtime/workflows/1/batch "
+                        "-H 'Content-Type: application/json' "
+                        "-d '{\"questions\":[\"如何导入文档？\",\"如何运行评测？\"]}'"
+                    ),
+                },
+                "workflows": workflows,
+            },
+            {
+                "service": "rag-eval-runtime",
+                "workflow_count": len(workflows),
+                "ready_workflow_count": ready_count,
+            },
+        )
+
     @app.post("/api/runtime/workflows/{workflow_id}/invoke")
     def runtime_invoke(workflow_id: int, payload: Optional[RuntimeInvokeRequest] = None) -> Dict[str, Any]:
         question = (payload.question if payload else "").strip()

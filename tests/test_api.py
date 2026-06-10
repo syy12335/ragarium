@@ -186,6 +186,16 @@ def test_api_import_index_generate_and_eval(tmp_path):
     assert runtime_workflows[0]["workflow_id"] == workflow_id
     assert runtime_workflows[0]["can_run"] is True
 
+    deployment_response = client.post("/api/deployment/local/start")
+    assert deployment_response.status_code == 200
+    deployment = deployment_response.json()
+    assert deployment["ok"] is True
+    assert deployment["output"]["status"] == "running"
+    assert deployment["output"]["contract_version"] == "v1"
+    assert deployment["output"]["examples"]["invoke"].startswith("curl -X POST")
+    assert deployment["metadata"]["ready_workflow_count"] >= 1
+    assert deployment["output"]["workflows"][0]["workflow_id"] == workflow_id
+
     runtime_invoke_response = client.post(
         f"/api/runtime/workflows/{workflow_id}/invoke",
         json={"question": "How does runtime work?"},

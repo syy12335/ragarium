@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  ArrowLeft,
   Bot,
   Database,
   GitBranch,
@@ -58,6 +59,7 @@ export default function App() {
   const remote = useRemoteState();
   const [activeTab, setActiveTab] = useState('home');
   const [dataIntent, setDataIntent] = useState({ section: 'landing', key: 0 });
+  const [returnContext, setReturnContext] = useState(null);
   const [status, setStatus] = useState('就绪');
   const active = tabs.find((tab) => tab.id === activeTab) || tabs[0];
 
@@ -78,7 +80,15 @@ export default function App() {
     }
   }
 
-  function navigate(tabId) {
+  function navigate(tabId, options = {}) {
+    const tab = tabs.find((item) => item.id === tabId) || tabs[0];
+    if (options.returnToHome) {
+      setReturnContext({
+        label: options.label || tab.label,
+      });
+    } else {
+      setReturnContext(null);
+    }
     if (tabId === 'queries') {
       setDataIntent({ section: 'querySets', key: Date.now() });
       setActiveTab('data');
@@ -88,6 +98,11 @@ export default function App() {
       setDataIntent({ section: 'landing', key: Date.now() });
     }
     setActiveTab(tabId);
+  }
+
+  function returnToHome() {
+    setReturnContext(null);
+    setActiveTab('home');
   }
 
   return (
@@ -132,7 +147,19 @@ export default function App() {
           </Button>
         </header>
 
-        {activeTab === 'home' ? <HomePage remote={remote} onNavigate={navigate} /> : null}
+        {activeTab !== 'home' && returnContext ? (
+          <div className="editor-header action-return-bar">
+            <Button icon={ArrowLeft} variant="secondary" onClick={returnToHome}>
+              返回导航
+            </Button>
+            <div>
+              <strong>{returnContext.label}</strong>
+              <span>从常见工作顺序进入，完成后可以回到导航继续下一步。</span>
+            </div>
+          </div>
+        ) : null}
+
+        {activeTab === 'home' ? <HomePage remote={remote} onNavigate={navigate} runTask={runTask} /> : null}
         {activeTab === 'data' ? <DataPage remote={remote} runTask={runTask} initialSection={dataIntent.section} navigationKey={dataIntent.key} /> : null}
         {activeTab === 'workflow' ? <WorkflowPage remote={remote} runTask={runTask} /> : null}
         {activeTab === 'evaluation' ? <EvaluationPage remote={remote} runTask={runTask} /> : null}
