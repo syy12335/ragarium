@@ -6,7 +6,6 @@ import {
   Link2,
   ListChecks,
   Plus,
-  RefreshCw,
   Trash2,
   Upload,
   WandSparkles,
@@ -14,7 +13,7 @@ import {
 import { api } from '../api.js';
 import { Button, EmptyState, Field, HelpDot, IconButton, Panel, StatusPill } from '../components/ui.jsx';
 
-const supportedText = '支持 .txt、.md、.html、.pdf、.docx 文件和普通静态单页 URL；动态页面或登录页需要后续开启浏览器渲染解析。同一批来源会一起切割并保存到当前 name-db。';
+const supportedText = '支持 .txt、.md、.html、.pdf、.docx 文件和普通静态单页 URL；动态页面或登录页需要后续开启浏览器渲染解析。同一批来源会一起切割并保存到当前知识库 DB。';
 const defaultExamples = '如何配置这个产品？\n上传文档后怎么检索？\n评测结果怎么看？';
 
 function newSourceRow(type = 'file') {
@@ -29,7 +28,6 @@ function newSourceRow(type = 'file') {
 export function DataPage({ remote, runTask, initialSection = 'landing', navigationKey = 0 }) {
   const [viewMode, setViewMode] = useState('landing');
   const [selectedDbId, setSelectedDbId] = useState('');
-  const [newDbName, setNewDbName] = useState('');
   const [detail, setDetail] = useState(null);
   const [rows, setRows] = useState([newSourceRow('file')]);
   const [chunk, setChunk] = useState({ chunk_size: 900, chunk_overlap: 120 });
@@ -86,6 +84,17 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
     return remote.knowledgeBases.find((db) => String(db.id) === String(id))?.name || `DB #${id}`;
   }
 
+  function nextName(prefix, items) {
+    const names = new Set(items.map((item) => item.name));
+    let index = items.length + 1;
+    let name = `${prefix} ${index}`;
+    while (names.has(name)) {
+      index += 1;
+      name = `${prefix} ${index}`;
+    }
+    return name;
+  }
+
   function backToLanding() {
     setViewMode('landing');
     setSelectedDbId('');
@@ -114,8 +123,7 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
   }
 
   async function createDb() {
-    const created = await api.createKnowledgeBase(newDbName.trim() || 'knowledge-db');
-    setNewDbName('');
+    const created = await api.createKnowledgeBase(nextName('知识库', remote.knowledgeBases));
     setSelectedDbId(String(created.id));
     setDetail(await api.getKnowledgeBase(created.id));
     setViewMode('kb-detail');
@@ -171,7 +179,7 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
     setQueryDbId(remote.knowledgeBases[0] ? String(remote.knowledgeBases[0].id) : '');
     setQueryExamples(defaultExamples);
     setQueryTargetCount(10);
-    setQueryName('生成的 Query 集');
+    setQueryName(nextName('评测集', remote.querySets));
     setSelectedQuerySetId('');
     setViewMode('query-create');
   }
@@ -189,7 +197,7 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
       knowledge_base_id: Number(queryDbId),
       examples: queryExamples.split('\n').map((line) => line.trim()).filter(Boolean),
       target_count: Number(queryTargetCount),
-      name: queryName.trim() || '生成的 Query 集',
+      name: queryName.trim() || nextName('评测集', remote.querySets),
     });
     setSelectedQuerySetId(String(result.id));
     setViewMode('query-detail');
@@ -244,15 +252,15 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
           </Panel>
 
           <Panel title="新建知识库">
-            <Field label="名称" help="用于区分不同知识库；后续 Workflow、Query 生成和评测都会按这个 DB 名选择数据来源。">
-              <input
-                value={newDbName}
-                onChange={(event) => setNewDbName(event.target.value)}
-                placeholder="support-docs-db"
-              />
-            </Field>
+            <div className="quick-create-card">
+              <Database size={24} />
+              <div>
+                <strong>直接创建一个空知识库</strong>
+                <span>系统会自动命名；进入后再导入 File 或 URL。后续在 Workflow、Query 生成和评测里按这个 DB 选择数据来源。</span>
+              </div>
+            </div>
             <Button icon={FilePlus2} onClick={() => runTask('创建 DB 中', createDb)}>
-              创建并进入
+              创建知识库
             </Button>
           </Panel>
         </div>
@@ -263,103 +271,60 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
   if (viewMode === 'kb-detail') {
     return (
       <div className="data-section-shell">
-        <DataBackHeader title={selectedDb ? selectedDb.name : '知识库详情'} subtitle={selectedDb ? selectedDb.collection_name : '未选择 DB'} onBack={() => setViewMode('kb-entry')} />
+        <div className="minimal-back-row">
+          <Button icon={ArrowLeft} variant="secondary" onClick={() => setViewMode('kb-entry')}>
+            返回知识库
+          </Button>
+        </div>
         <div className="data-main">
-          <Panel
-            title="知识库概览"
-            actions={
-              <>
-                <Button icon={RefreshCw} variant="secondary" onClick={() => runTask('刷新 DB 中', refreshDetail)}>
-                  刷新
-                </Button>
-                <Button icon={Database} variant="secondary" disabled={!selectedDbId} onClick={() => runTask('构建索引中', buildIndex)}>
-                  构建索引
-                </Button>
-              </>
-            }
-          >
-            {selectedDb ? (
-              <div className="db-summary">
-                <div>
-                  <span>Collection</span>
-                  <strong>{selectedDb.collection_name}</strong>
-                </div>
-                <div>
-                  <span>索引</span>
-                  <StatusPill status={detail?.index_status || selectedDb.index_status} />
-                </div>
-                <div>
-                  <span>来源</span>
-                  <strong>{detail?.sources?.length || selectedDb.source_count || 0}</strong>
-                </div>
-                <div>
-                  <span>Chunks</span>
-                  <strong>{selectedDb.chunk_count || detail?.chunks?.length || 0}</strong>
-                </div>
-              </div>
-            ) : (
-              <EmptyState title="未选择 DB" body="请返回选择已有知识库，或新建一个 DB。" />
-            )}
-            {detail?.index_error ? <p className="error-text">{detail.index_error}</p> : null}
-          </Panel>
-
           <Panel
             title={
               <span className="title-with-help">
-                添加来源
+                导入资料到 {selectedDb?.name || '当前知识库'}
                 <HelpDot text={supportedText} />
               </span>
             }
             actions={
-              <>
-                <Button icon={Plus} variant="secondary" onClick={() => setRows((current) => [...current, newSourceRow('file')])}>
-                  File
+              detail?.sources?.length ? (
+                <Button icon={Database} variant="secondary" disabled={!selectedDbId} onClick={() => runTask('构建索引中', buildIndex)}>
+                  构建索引
                 </Button>
-                <Button icon={Plus} variant="secondary" onClick={() => setRows((current) => [...current, newSourceRow('url')])}>
-                  URL
-                </Button>
-              </>
+              ) : null
             }
           >
-            <div className="chunk-bar">
-              <Field label="Chunk size" help="控制每个切片的大致长度；切片越大，上下文更完整，但检索和评测成本更高。">
-                <input
-                  type="number"
-                  min="100"
-                  value={chunk.chunk_size}
-                  onChange={(event) => setChunk((current) => ({ ...current, chunk_size: Number(event.target.value) }))}
-                />
-              </Field>
-              <Field label="Overlap" help="控制相邻切片重复多少内容；适当重叠能减少句子被切断导致的检索丢失。">
-                <input
-                  type="number"
-                  min="0"
-                  value={chunk.chunk_overlap}
-                  onChange={(event) => setChunk((current) => ({ ...current, chunk_overlap: Number(event.target.value) }))}
-                />
-              </Field>
-            </div>
+            {detail?.index_error ? <p className="error-text">{detail.index_error}</p> : null}
 
             <div className="source-list">
-              {rows.map((row) => (
-                <div className="source-row" key={row.id}>
-                  <div className="source-row-head">
-                    <div className="segmented compact">
-                      <button className={row.type === 'file' ? 'active' : ''} onClick={() => updateRow(row.id, { type: 'file', url: '' })}>
-                        File
-                      </button>
-                      <button className={row.type === 'url' ? 'active' : ''} onClick={() => updateRow(row.id, { type: 'url', file: null })}>
-                        URL
-                      </button>
+              {rows.map((row, index) => (
+                <div className="source-input-group" key={row.id}>
+                  {rows.length > 1 ? (
+                    <div className="source-row-head compact-head">
+                      <strong>来源 {index + 1}</strong>
+                      <IconButton label="移除来源" icon={Trash2} onClick={() => removeRow(row.id)} />
                     </div>
-                    <IconButton label="移除来源" icon={Trash2} onClick={() => removeRow(row.id)} />
+                  ) : null}
+                  <div className="source-choice">
+                    <button
+                      type="button"
+                      className={row.type === 'file' ? 'active' : ''}
+                      onClick={() => updateRow(row.id, { type: 'file', url: '' })}
+                    >
+                      上传文件
+                    </button>
+                    <button
+                      type="button"
+                      className={row.type === 'url' ? 'active' : ''}
+                      onClick={() => updateRow(row.id, { type: 'url', file: null })}
+                    >
+                      粘贴 URL
+                    </button>
                   </div>
                   {row.type === 'file' ? (
-                    <Field label="File" help="上传本地文档作为知识库来源；系统会解析正文、切成 chunks 并保存到当前 DB。">
+                    <Field label="选择文件" help="选择一个本地文档，系统会解析正文、切成 chunks 并保存到当前知识库。">
                       <input type="file" onChange={(event) => updateRow(row.id, { file: event.target.files?.[0] || null })} />
                     </Field>
                   ) : (
-                    <Field label="URL" help="导入单页静态网页正文；动态页面或登录页无法直接解析时会标记失败，避免写入脏 chunks。">
+                    <Field label="粘贴网页 URL" help="导入单页静态网页正文；动态页面或登录页无法直接解析时会标记失败。">
                       <div className="input-with-icon">
                         <Link2 size={16} />
                         <input
@@ -374,16 +339,48 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
               ))}
             </div>
 
+            <div className="source-add-row">
+              <Button icon={Plus} variant="secondary" onClick={() => setRows((current) => [...current, newSourceRow('file')])}>
+                添加文件
+              </Button>
+              <Button icon={Plus} variant="secondary" onClick={() => setRows((current) => [...current, newSourceRow('url')])}>
+                添加 URL
+              </Button>
+            </div>
+
+            <details className="advanced-settings">
+              <summary>高级设置</summary>
+              <div className="chunk-bar">
+                <Field label="Chunk size" help="控制每个切片的大致长度；切片越大，上下文更完整，但检索和评测成本更高。">
+                  <input
+                    type="number"
+                    min="100"
+                    value={chunk.chunk_size}
+                    onChange={(event) => setChunk((current) => ({ ...current, chunk_size: Number(event.target.value) }))}
+                  />
+                </Field>
+                <Field label="Overlap" help="控制相邻切片重复多少内容；适当重叠能减少句子被切断导致的检索丢失。">
+                  <input
+                    type="number"
+                    min="0"
+                    value={chunk.chunk_overlap}
+                    onChange={(event) => setChunk((current) => ({ ...current, chunk_overlap: Number(event.target.value) }))}
+                  />
+                </Field>
+              </div>
+            </details>
+
             <Button
               icon={Upload}
               disabled={!selectedDbId || rows.every((row) => (row.type === 'file' ? !row.file : !row.url.trim()))}
               onClick={() => runTask('导入来源中', importSources)}
             >
-              导入到当前 DB
+              开始导入
             </Button>
           </Panel>
 
-          <div className="detail-grid">
+          {(detail?.sources?.length || detail?.chunks?.length) ? (
+            <div className="detail-grid">
             <Panel title="来源">
               {detail?.sources?.length ? (
                 <div className="table-list">
@@ -418,6 +415,7 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
               )}
             </Panel>
           </div>
+          ) : null}
         </div>
       </div>
     );
@@ -474,15 +472,18 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
                 ))}
               </select>
             </Field>
-            <Field label="名称" help="用于在评测页和 Workflow 里识别这批 Query，建议写清用途或数据范围。">
-              <input value={queryName} onChange={(event) => setQueryName(event.target.value)} />
-            </Field>
             <Field label="示例 Query" help="每行一个，3 到 5 行；模型会学习这些问题的语气、长短和关注点来扩写更多 Query。">
               <textarea value={queryExamples} onChange={(event) => setQueryExamples(event.target.value)} rows={8} />
             </Field>
-            <Field label="目标数量" help="要生成多少条 Query；数量越多覆盖面越广，但后续生成答案和评测会更慢。">
-              <input type="number" min="1" max="500" value={queryTargetCount} onChange={(event) => setQueryTargetCount(Number(event.target.value))} />
-            </Field>
+            <details className="advanced-settings">
+              <summary>高级设置</summary>
+              <Field label="名称" help="用于在评测页和 Workflow 里识别这批 Query；不填也会自动命名。">
+                <input value={queryName} onChange={(event) => setQueryName(event.target.value)} />
+              </Field>
+              <Field label="目标数量" help="要生成多少条 Query；数量越多覆盖面越广，但后续生成答案和评测会更慢。">
+                <input type="number" min="1" max="500" value={queryTargetCount} onChange={(event) => setQueryTargetCount(Number(event.target.value))} />
+              </Field>
+            </details>
             <Button icon={WandSparkles} disabled={!queryDbId} onClick={() => runTask('生成 Query 中', generateQuerySet)}>
               生成
             </Button>

@@ -648,6 +648,50 @@ select:focus {
   align-items: end;
 }
 
+.quick-create-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.quick-create-card strong,
+.quick-create-card span {
+  display: block;
+  min-width: 0;
+}
+
+.quick-create-card span {
+  margin-top: 4px;
+  color: #637286;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.advanced-settings {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fbfdff;
+}
+
+.advanced-settings summary {
+  color: #526174;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.advanced-settings[open] summary {
+  margin-bottom: 10px;
+}
+
 .db-list,
 .card-list,
 .table-list,
@@ -710,6 +754,12 @@ select:focus {
 .data-main {
   display: grid;
   gap: 16px;
+}
+
+.minimal-back-row {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
 }
 
 .db-summary {
@@ -892,6 +942,51 @@ select:focus {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.source-input-group {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+}
+
+.compact-head {
+  min-height: 28px;
+}
+
+.source-choice {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.source-choice button {
+  min-height: 42px;
+  border: 0;
+  background: #ffffff;
+  color: #425164;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.source-choice button + button {
+  border-left: 1px solid #cbd5e1;
+}
+
+.source-choice button.active {
+  background: #2563a6;
+  color: #ffffff;
+}
+
+.source-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .segmented {
@@ -1623,6 +1718,10 @@ pre {
 
   .inline-action-hint {
     align-items: stretch;
+    flex-direction: column;
+  }
+
+  .source-add-row {
     flex-direction: column;
   }
 

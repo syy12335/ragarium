@@ -145,7 +145,7 @@ export default function App() {
           </Button>
         </header>
 
-        {activeTab !== 'home' && returnContext ? (
+        {activeTab !== 'home' && activeTab !== 'data' && returnContext ? (
           <div className="editor-header action-return-bar">
             <Button icon={ArrowLeft} variant="secondary" onClick={returnToHome}>
               返回导航
