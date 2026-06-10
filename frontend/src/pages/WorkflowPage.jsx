@@ -322,7 +322,7 @@ export function WorkflowPage({ remote, runTask }) {
         </div>
 
         <Panel title="参数配置" className="inspector-panel" actions={<Settings size={17} />}>
-          <Field label="Graph 名称">
+          <Field label="Graph 名称" help="用于保存和加载这个工作流；Runtime API 和评测页也会显示这个名字。">
             <input value={workflowName} onChange={(event) => setWorkflowName(event.target.value)} />
           </Field>
           <div className="button-row">
@@ -466,7 +466,7 @@ function StartInputForm({ fields, values, onChange }) {
           );
         }
         return (
-          <Field key={field.name} label={`${field.name}${field.required ? ' *' : ''}`} help={field.type}>
+          <Field key={field.name} label={`${field.name}${field.required ? ' *' : ''}`} help={`${field.type}；执行 Graph 时传入，后续节点可读取这个变量。`}>
             <input
               type={field.type === 'number' ? 'number' : 'text'}
               value={value}
@@ -562,7 +562,7 @@ function NodeInspector({ node, remote, onChange, onDelete, onRunNode }) {
         </Button>
       </div>
 
-      <Field label="标签">
+      <Field label="标签" help="节点在画布上的显示名称；只影响可读性，不改变节点类型。">
         <input value={data.label || ''} onChange={(event) => onChange('label', event.target.value)} />
       </Field>
 
@@ -571,7 +571,7 @@ function NodeInspector({ node, remote, onChange, onDelete, onRunNode }) {
       ) : null}
 
       {node.type === 'source' ? (
-        <Field label="知识库 DB">
+        <Field label="知识库 DB" help="指定离线处理链路读取哪个知识库；Parse、Chunk 和索引都会基于这个 DB 的来源。">
           <select value={data.knowledgeBaseId || ''} onChange={(event) => onChange('knowledgeBaseId', event.target.value)}>
             <option value="">选择 DB</option>
             {remote.knowledgeBases.map((db) => (
@@ -585,7 +585,7 @@ function NodeInspector({ node, remote, onChange, onDelete, onRunNode }) {
 
       {node.type === 'query_generate' ? (
         <>
-          <Field label="知识库 DB">
+          <Field label="知识库 DB" help="指定 Query 生成参考哪个知识库内容，避免生成和数据无关的问题。">
             <select value={data.knowledgeBaseId || ''} onChange={(event) => onChange('knowledgeBaseId', event.target.value)}>
               <option value="">选择 DB</option>
               {remote.knowledgeBases.map((db) => (
@@ -595,17 +595,17 @@ function NodeInspector({ node, remote, onChange, onDelete, onRunNode }) {
               ))}
             </select>
           </Field>
-          <Field label="Query Set 名称">
+          <Field label="Query Set 名称" help="生成后保存成这个评测集名称，方便在评测页或后续 Workflow 中选择。">
             <input value={data.name || ''} onChange={(event) => onChange('name', event.target.value)} />
           </Field>
-          <Field label="示例 Query" help="3 到 5 行">
+          <Field label="示例 Query" help="每行一个，3 到 5 行；模型会学习问题风格，并结合 DB 内容扩写 Query。">
             <textarea
               rows={6}
               value={examplesValue}
               onChange={(event) => onChange('examples', event.target.value.split('\n').map((line) => line.trim()).filter(Boolean))}
             />
           </Field>
-          <Field label="目标数量">
+          <Field label="目标数量" help="需要生成多少条 Query；数量越多覆盖面更广，后续评测耗时也更长。">
             <input
               type="number"
               min="1"
@@ -621,7 +621,7 @@ function NodeInspector({ node, remote, onChange, onDelete, onRunNode }) {
       ) : null}
 
       {node.type === 'parse' ? (
-        <Field label="Parser">
+        <Field label="Parser" help="决定如何从来源中抽取正文；通常保持自动识别即可。">
           <select value={data.parser || 'auto'} onChange={(event) => onChange('parser', event.target.value)}>
             <option value="auto">按来源自动识别</option>
             <option value="plain_text">Plain text</option>
@@ -634,7 +634,7 @@ function NodeInspector({ node, remote, onChange, onDelete, onRunNode }) {
 
       {node.type === 'chunk' ? (
         <div className="field-grid">
-          <Field label="Chunk size">
+          <Field label="Chunk size" help="控制重新切片的长度；影响检索粒度、上下文完整度和索引大小。">
             <input
               type="number"
               min="100"
@@ -642,7 +642,7 @@ function NodeInspector({ node, remote, onChange, onDelete, onRunNode }) {
               onChange={(event) => onChange('chunkSize', Number(event.target.value))}
             />
           </Field>
-          <Field label="Overlap">
+          <Field label="Overlap" help="控制相邻 Chunk 重叠文本量；用于减少句子被截断导致的检索丢失。">
             <input
               type="number"
               min="0"
@@ -666,7 +666,7 @@ function NodeInspector({ node, remote, onChange, onDelete, onRunNode }) {
 
       {node.type === 'retrieve' ? (
         <>
-          <Field label="知识库 DB" help="留空则继承上游 DB">
+          <Field label="知识库 DB" help="决定从哪个 DB 检索上下文；留空则继承上游 DB，适合模板链路。">
             <select value={data.knowledgeBaseId || ''} onChange={(event) => onChange('knowledgeBaseId', event.target.value)}>
               <option value="">继承上游 DB</option>
               {remote.knowledgeBases.map((db) => (
@@ -677,7 +677,7 @@ function NodeInspector({ node, remote, onChange, onDelete, onRunNode }) {
             </select>
           </Field>
           <div className="field-grid">
-            <Field label="Top K">
+            <Field label="Top K" help="每个问题取回多少个相关 Chunk；更大可能召回更多信息，也会增加噪声和成本。">
               <input
                 type="number"
                 min="1"
@@ -686,7 +686,7 @@ function NodeInspector({ node, remote, onChange, onDelete, onRunNode }) {
                 onChange={(event) => onChange('topK', Number(event.target.value))}
               />
             </Field>
-            <Field label="检索方式">
+            <Field label="检索方式" help="决定向量库怎么排序候选上下文；当前第一版只开放相似度检索。">
               <select value={data.searchType || 'similarity'} onChange={(event) => onChange('searchType', event.target.value)}>
                 <option value="similarity">Similarity</option>
               </select>
@@ -698,10 +698,10 @@ function NodeInspector({ node, remote, onChange, onDelete, onRunNode }) {
       {node.type === 'prompt_llm' ? (
         <>
           <div className="field-grid">
-            <Field label="Model">
+            <Field label="Model" help="可覆盖配置页的默认 Answer 模型；留空时使用全局默认模型。">
               <input value={data.model || ''} placeholder="使用配置默认值" onChange={(event) => onChange('model', event.target.value)} />
             </Field>
-            <Field label="Temperature">
+            <Field label="Temperature" help="控制回答随机性；RAG 和评测建议偏低，输出更稳定。">
               <input
                 type="number"
                 min="0"
@@ -712,7 +712,7 @@ function NodeInspector({ node, remote, onChange, onDelete, onRunNode }) {
               />
             </Field>
           </div>
-          <Field label="Prompt 模板">
+          <Field label="Prompt 模板" help="定义模型如何使用 question 和 contexts 生成回答；会直接影响答案风格和忠实度。">
             <textarea rows={8} value={data.prompt || ''} onChange={(event) => onChange('prompt', event.target.value)} />
           </Field>
         </>
@@ -720,7 +720,7 @@ function NodeInspector({ node, remote, onChange, onDelete, onRunNode }) {
 
       {node.type === 'answer' ? (
         <>
-          <Field label="输出 key">
+          <Field label="输出 key" help="指定答案写入执行状态的字段名；End 节点和评测节点会从这里取结果。">
             <input value={data.outputKey || 'answer'} onChange={(event) => onChange('outputKey', event.target.value)} />
           </Field>
           <label className="checkbox-row">
@@ -736,12 +736,12 @@ function NodeInspector({ node, remote, onChange, onDelete, onRunNode }) {
 
       {node.type === 'ragas_eval' ? (
         <>
-          <Field label="Metric preset">
+          <Field label="Metric preset" help="决定使用哪组 RAGAS 指标；query-only 数据默认使用不依赖标准答案的 reference_free。">
             <select value={data.metricPreset || 'reference_free'} onChange={(event) => onChange('metricPreset', event.target.value)}>
               <option value="reference_free">reference_free</option>
             </select>
           </Field>
-          <Field label="数量限制">
+          <Field label="数量限制" help="限制本次评测使用多少条 Query；调试时可先少量跑，正式评测留空跑全部。">
             <input value={data.limit || ''} onChange={(event) => onChange('limit', event.target.value)} placeholder="全部" />
           </Field>
         </>
@@ -774,6 +774,7 @@ function StartFieldEditor({ fields, onChange }) {
         <h3>输入参数</h3>
         <Button icon={Plus} variant="secondary" onClick={addField}>添加</Button>
       </div>
+      <p className="muted-copy">定义执行 Graph 时需要用户填写的变量；后续节点可以读取这些值，例如 question、limit 或调试开关。</p>
       {fields.length ? fields.map((field, index) => (
         <div className="field-row" key={`${field.name}_${index}`}>
           <input value={field.name || ''} onChange={(event) => updateField(index, 'name', event.target.value)} placeholder="变量名" />
@@ -808,6 +809,7 @@ function EndOutputEditor({ outputs, onChange }) {
         <h3>输出字段</h3>
         <Button icon={Plus} variant="secondary" onClick={() => onChange([...outputs, 'answer'])}>添加</Button>
       </div>
+      <p className="muted-copy">定义 End 节点最终返回哪些 state 字段；外部调用和执行结果会优先展示这些字段。</p>
       {outputs.length ? outputs.map((output, index) => (
         <div className="output-row" key={`${output}_${index}`}>
           <input value={output || ''} onChange={(event) => updateOutput(index, event.target.value)} placeholder="state key，如 answer" />

@@ -35,7 +35,7 @@ export function QueryPage({ remote, runTask }) {
   return (
     <div className="two-column">
       <Panel title="生成 Query 集">
-        <Field label="知识库 DB">
+        <Field label="知识库 DB" help="决定从哪个知识库抽样内容；生成的 Query 会围绕这个 DB 的 chunks。">
           <select value={dbId} onChange={(event) => setDbId(event.target.value)}>
             <option value="">选择 DB</option>
             {remote.knowledgeBases.map((db) => (
@@ -43,13 +43,13 @@ export function QueryPage({ remote, runTask }) {
             ))}
           </select>
         </Field>
-        <Field label="名称">
+        <Field label="名称" help="用于在评测页和 Workflow 中识别这批 Query，建议写清用途或数据范围。">
           <input value={name} onChange={(event) => setName(event.target.value)} />
         </Field>
-        <Field label="示例 Query" help="3 到 5 行">
+        <Field label="示例 Query" help="每行一个，3 到 5 行；模型会学习问题风格，并结合 DB 内容扩写 Query。">
           <textarea value={examples} onChange={(event) => setExamples(event.target.value)} rows={8} />
         </Field>
-        <Field label="目标数量">
+        <Field label="目标数量" help="要生成多少条 Query；数量越多覆盖面越广，但后续生成答案和评测会更慢。">
           <input type="number" min="1" max="500" value={targetCount} onChange={(event) => setTargetCount(Number(event.target.value))} />
         </Field>
         <Button icon={WandSparkles} disabled={!dbId} onClick={() => runTask('生成 Query 中', generate)}>

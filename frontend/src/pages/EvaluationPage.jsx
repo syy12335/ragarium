@@ -32,7 +32,7 @@ export function EvaluationPage({ remote, runTask }) {
   return (
     <div className="two-column">
       <Panel title="无参考答案评测">
-        <Field label="Query 集">
+        <Field label="Query 集" help="选择要评测的问题列表；系统会逐条运行 Workflow 生成答案，再交给 RAGAS 评分。">
           <select value={querySetId} onChange={(event) => setQuerySetId(event.target.value)}>
             <option value="">选择 Query 集</option>
             {remote.querySets.map((set) => (
@@ -48,7 +48,7 @@ export function EvaluationPage({ remote, runTask }) {
             <span>来自 {dbName(querySet.knowledge_base_id)}</span>
           </div>
         ) : null}
-        <Field label="Workflow">
+        <Field label="Workflow" help="选择用于回答 Query 的 RAG Graph；评测指标会基于它生成的 answer 和 contexts。">
           <select value={workflowId} onChange={(event) => setWorkflowId(event.target.value)}>
             <option value="">选择 Workflow</option>
             {runnableWorkflows.map((workflow) => (
@@ -56,7 +56,7 @@ export function EvaluationPage({ remote, runTask }) {
             ))}
           </select>
         </Field>
-        <Field label="数量限制">
+        <Field label="数量限制" help="限制本次评测使用多少条 Query；留空表示跑完整评测集，调试时可先填小数字。">
           <input value={limit} onChange={(event) => setLimit(event.target.value)} placeholder="全部" />
         </Field>
         <Button icon={Play} disabled={!querySetId || !workflowId} onClick={() => runTask('启动评测中', runEvaluation)}>

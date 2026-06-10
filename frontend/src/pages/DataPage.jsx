@@ -244,7 +244,7 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
           </Panel>
 
           <Panel title="新建知识库">
-            <Field label="名称">
+            <Field label="名称" help="用于区分不同知识库；后续 Workflow、Query 生成和评测都会按这个 DB 名选择数据来源。">
               <input
                 value={newDbName}
                 onChange={(event) => setNewDbName(event.target.value)}
@@ -322,7 +322,7 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
             }
           >
             <div className="chunk-bar">
-              <Field label="Chunk size">
+              <Field label="Chunk size" help="控制每个切片的大致长度；切片越大，上下文更完整，但检索和评测成本更高。">
                 <input
                   type="number"
                   min="100"
@@ -330,7 +330,7 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
                   onChange={(event) => setChunk((current) => ({ ...current, chunk_size: Number(event.target.value) }))}
                 />
               </Field>
-              <Field label="Overlap">
+              <Field label="Overlap" help="控制相邻切片重复多少内容；适当重叠能减少句子被切断导致的检索丢失。">
                 <input
                   type="number"
                   min="0"
@@ -355,11 +355,11 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
                     <IconButton label="移除来源" icon={Trash2} onClick={() => removeRow(row.id)} />
                   </div>
                   {row.type === 'file' ? (
-                    <Field label="File">
+                    <Field label="File" help="上传本地文档作为知识库来源；系统会解析正文、切成 chunks 并保存到当前 DB。">
                       <input type="file" onChange={(event) => updateRow(row.id, { file: event.target.files?.[0] || null })} />
                     </Field>
                   ) : (
-                    <Field label="URL">
+                    <Field label="URL" help="导入单页静态网页正文；动态页面或登录页无法直接解析时会标记失败，避免写入脏 chunks。">
                       <div className="input-with-icon">
                         <Link2 size={16} />
                         <input
@@ -466,7 +466,7 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
         <DataBackHeader title="新建评测集" subtitle="基于知识库内容和示例 Query 风格生成。" onBack={() => setViewMode('query-entry')} />
         <div className="two-column">
           <Panel title="生成 Query 集">
-            <Field label="知识库 DB">
+            <Field label="知识库 DB" help="决定模型从哪个知识库抽样内容；生成的 Query 会围绕这个 DB 的 chunks。">
               <select value={queryDbId} onChange={(event) => setQueryDbId(event.target.value)}>
                 <option value="">选择 DB</option>
                 {remote.knowledgeBases.map((db) => (
@@ -474,13 +474,13 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
                 ))}
               </select>
             </Field>
-            <Field label="名称">
+            <Field label="名称" help="用于在评测页和 Workflow 里识别这批 Query，建议写清用途或数据范围。">
               <input value={queryName} onChange={(event) => setQueryName(event.target.value)} />
             </Field>
-            <Field label="示例 Query" help="3 到 5 行">
+            <Field label="示例 Query" help="每行一个，3 到 5 行；模型会学习这些问题的语气、长短和关注点来扩写更多 Query。">
               <textarea value={queryExamples} onChange={(event) => setQueryExamples(event.target.value)} rows={8} />
             </Field>
-            <Field label="目标数量">
+            <Field label="目标数量" help="要生成多少条 Query；数量越多覆盖面越广，但后续生成答案和评测会更慢。">
               <input type="number" min="1" max="500" value={queryTargetCount} onChange={(event) => setQueryTargetCount(Number(event.target.value))} />
             </Field>
             <Button icon={WandSparkles} disabled={!queryDbId} onClick={() => runTask('生成 Query 中', generateQuerySet)}>

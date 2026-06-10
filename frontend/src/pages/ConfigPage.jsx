@@ -93,16 +93,16 @@ export function ConfigPage({ runTask }) {
                 <IconButton label="删除 Provider" icon={X} onClick={() => removeProvider(index)} />
               </div>
               <div className="provider-grid">
-                <Field label="Key">
+                <Field label="Key" help="Provider 的唯一标识；模型角色会通过这个 Key 选择具体服务商。">
                   <input value={provider.key} onChange={(event) => updateProvider(index, { key: event.target.value })} />
                 </Field>
-                <Field label="Base URL">
+                <Field label="Base URL" help="OpenAI 兼容接口地址；请求模型时会发到这个网关。">
                   <input value={provider.base_url} onChange={(event) => updateProvider(index, { base_url: event.target.value })} />
                 </Field>
-                <Field label="API key env">
+                <Field label="API key env" help="环境变量名，不直接保存密钥；后端运行时会从这个变量读取 API Key。">
                   <input value={provider.api_key_env} onChange={(event) => updateProvider(index, { api_key_env: event.target.value })} />
                 </Field>
-                <Field label="默认模型">
+                <Field label="默认模型" help="当某个角色没有单独指定模型时，会回退使用这里的模型。">
                   <input value={provider.default_model_name} onChange={(event) => updateProvider(index, { default_model_name: event.target.value })} />
                 </Field>
               </div>
@@ -148,7 +148,7 @@ export function ConfigPage({ runTask }) {
         }
       >
         <div className="field-grid">
-          <Field label="Chunk size">
+          <Field label="Chunk size" help="新导入来源默认切成多长；影响检索粒度、上下文完整度和向量库大小。">
             <input
               type="number"
               min="100"
@@ -156,7 +156,7 @@ export function ConfigPage({ runTask }) {
               onChange={(event) => setChunk((current) => ({ ...current, chunk_size: Number(event.target.value) }))}
             />
           </Field>
-          <Field label="Overlap">
+          <Field label="Overlap" help="新导入来源默认保留多少重叠文本；用于降低切片边界造成的信息丢失。">
             <input
               type="number"
               min="0"
@@ -175,7 +175,7 @@ function RoleEditor({ title, role, providerOptions, onChange, showGenerationPara
     <div className="role-editor">
       <h3>{title}</h3>
       <div className="field-grid">
-        <Field label="Provider">
+        <Field label="Provider" help="选择这个角色调用哪个模型服务；默认只需要 qwen。">
           <select value={role.provider || ''} onChange={(event) => onChange({ provider: event.target.value })}>
             <option value="">选择 Provider</option>
             {providerOptions.map((provider) => (
@@ -183,13 +183,13 @@ function RoleEditor({ title, role, providerOptions, onChange, showGenerationPara
             ))}
           </select>
         </Field>
-        <Field label="Model">
+        <Field label="Model" help="这个角色实际使用的模型名；Embedding 负责向量化，Answer 负责回答，Judge 负责评分。">
           <input value={role.model_name || role.model || ''} onChange={(event) => onChange({ model_name: event.target.value })} />
         </Field>
       </div>
       {showGenerationParams ? (
         <div className="field-grid">
-          <Field label="Temperature">
+          <Field label="Temperature" help="控制输出随机性；回答可略高，评测建议接近 0 保持稳定。">
             <input
               type="number"
               min="0"
@@ -199,7 +199,7 @@ function RoleEditor({ title, role, providerOptions, onChange, showGenerationPara
               onChange={(event) => onChange({ temperature: Number(event.target.value) })}
             />
           </Field>
-          <Field label="Max tokens">
+          <Field label="Max tokens" help="限制单次输出长度；太小可能截断答案或评分解释，太大成本更高。">
             <input
               type="number"
               min="1"
