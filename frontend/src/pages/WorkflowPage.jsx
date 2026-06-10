@@ -10,6 +10,7 @@ import {
   applyNodeChanges,
 } from '@xyflow/react';
 import {
+  ArrowLeft,
   ListChecks,
   Play,
   Plus,
@@ -56,6 +57,7 @@ function cloneGraph(graph) {
 
 export function WorkflowPage({ remote, runTask }) {
   const [templates, setTemplates] = useState([]);
+  const [viewMode, setViewMode] = useState('landing');
   const [starterTemplateId, setStarterTemplateId] = useState(DEFAULT_TEMPLATE_ID);
   const [workflowName, setWorkflowName] = useState('未命名 Graph');
   const [workflowId, setWorkflowId] = useState('');
@@ -72,9 +74,8 @@ export function WorkflowPage({ remote, runTask }) {
     async function loadInitial() {
       const items = await api.listWorkflowTemplates();
       setTemplates(items);
-      await createNewGraph(DEFAULT_TEMPLATE_ID, items);
     }
-    loadInitial().catch(() => createNewGraph(DEFAULT_TEMPLATE_ID, []));
+    loadInitial().catch(() => setTemplates([]));
   }, []);
 
   const graph = useMemo(
@@ -102,11 +103,11 @@ export function WorkflowPage({ remote, runTask }) {
     setSelectedNodeId(nextGraph.nodes[0]?.id || '');
     setStartInputs({});
     clearRunState();
+    setViewMode('editor');
   }
 
   function loadWorkflow(id) {
     if (!id) {
-      createNewGraph(starterTemplateId).catch(() => {});
       return;
     }
     const workflow = remote.workflows.find((item) => String(item.id) === String(id));
@@ -122,6 +123,7 @@ export function WorkflowPage({ remote, runTask }) {
     setSelectedNodeId(nextGraph.nodes[0]?.id || '');
     setStartInputs({});
     clearRunState();
+    setViewMode('editor');
   }
 
   function addNode(type, position = null) {
@@ -221,34 +223,38 @@ export function WorkflowPage({ remote, runTask }) {
     setStartInputs((current) => ({ ...current, [name]: value }));
   }
 
+  function returnToLanding() {
+    setViewMode('landing');
+    setSelectedNodeId('');
+    clearRunState();
+  }
+
+  if (viewMode === 'landing') {
+    return (
+      <WorkflowLanding
+        templates={templates}
+        workflows={remote.workflows}
+        onCreate={(templateId) => runTask('新建 Graph 中', () => createNewGraph(templateId))}
+        onLoad={loadWorkflow}
+      />
+    );
+  }
+
   return (
-    <div className="workflow-layout graph-editor-layout">
-      <Panel title="Graph" className="graph-sidebar">
-        <Field label="已保存 Graph">
-          <select value={workflowId} onChange={(event) => loadWorkflow(event.target.value)}>
-            <option value="">未保存草稿</option>
-            {remote.workflows.map((workflow) => (
-              <option key={workflow.id} value={workflow.id}>{workflow.name}</option>
-            ))}
-          </select>
-        </Field>
-
-        <div className="new-graph-list">
-          <span>新建 Graph</span>
-          {templates.map((template) => (
-            <button
-              key={template.id}
-              className="new-graph-card"
-              onClick={() => runTask('新建 Graph 中', () => createNewGraph(template.id))}
-            >
-              <strong>{template.name}</strong>
-              <small>{template.description}</small>
-            </button>
-          ))}
+    <div className="workflow-editor-shell">
+      <div className="editor-header">
+        <Button icon={ArrowLeft} variant="secondary" onClick={returnToLanding}>
+          返回
+        </Button>
+        <div>
+          <strong>{workflowName || '未命名 Graph'}</strong>
+          <span>{workflowId ? `Graph #${workflowId}` : '未保存草稿'}</span>
         </div>
+      </div>
 
+      <div className="workflow-layout graph-editor-layout">
+        <Panel title="节点库" className="graph-sidebar">
         <div className="node-list">
-          <span className="section-label">节点库</span>
           {nodeCatalog.map((item) => (
             <button
               key={item.type}
@@ -266,72 +272,109 @@ export function WorkflowPage({ remote, runTask }) {
             </button>
           ))}
         </div>
-      </Panel>
+        </Panel>
 
-      <div className="canvas-panel" onDrop={onDrop} onDragOver={onDragOver}>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          onInit={setFlowInstance}
-          onNodesChange={(changes) => setNodes((current) => applyNodeChanges(changes, current))}
-          onEdgesChange={(changes) => setEdges((current) => applyEdgeChanges(changes, current))}
-          onConnect={(params) =>
-            setEdges((current) =>
-              addEdge(
-                {
-                  ...params,
-                  id: `${params.source}-${params.target}-${Date.now()}`,
-                  animated: false,
-                },
-                current,
-              ),
-            )
-          }
-          onNodeClick={(_, node) => setSelectedNodeId(node.id)}
-          onPaneClick={() => setSelectedNodeId('')}
-          fitView
-        >
-          <Background />
-          <Controls />
-        </ReactFlow>
-      </div>
-
-      <Panel title="参数配置" className="inspector-panel" actions={<Settings size={17} />}>
-        <Field label="Graph 名称">
-          <input value={workflowName} onChange={(event) => setWorkflowName(event.target.value)} />
-        </Field>
-        <div className="button-row">
-          <Button icon={ListChecks} variant="secondary" onClick={() => runTask('校验 Graph 中', validateCurrentWorkflow)}>
-            校验
-          </Button>
-          <Button icon={Save} onClick={() => runTask('保存 Graph 中', saveCurrentWorkflow)}>
-            保存
-          </Button>
-          <Button icon={Play} onClick={() => runTask('执行 Graph 中', executeCurrentWorkflow)}>
-            执行
-          </Button>
+        <div className="canvas-panel" onDrop={onDrop} onDragOver={onDragOver}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            onInit={setFlowInstance}
+            onNodesChange={(changes) => setNodes((current) => applyNodeChanges(changes, current))}
+            onEdgesChange={(changes) => setEdges((current) => applyEdgeChanges(changes, current))}
+            onConnect={(params) =>
+              setEdges((current) =>
+                addEdge(
+                  {
+                    ...params,
+                    id: `${params.source}-${params.target}-${Date.now()}`,
+                    animated: false,
+                  },
+                  current,
+                ),
+              )
+            }
+            onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+            onPaneClick={() => setSelectedNodeId('')}
+            fitView
+          >
+            <Background />
+            <Controls />
+          </ReactFlow>
         </div>
 
-        {validationResult ? (
-          <div className={validationResult.ok ? 'hint-box' : 'hint-box error-box'}>
-            <strong>{validationResult.ok ? '可执行' : '暂不可执行'}</strong>
-            <span>{validationResult.ok ? `${validationResult.node_count} 个节点已通过运行前校验` : validationResult.error}</span>
+        <Panel title="参数配置" className="inspector-panel" actions={<Settings size={17} />}>
+          <Field label="Graph 名称">
+            <input value={workflowName} onChange={(event) => setWorkflowName(event.target.value)} />
+          </Field>
+          <div className="button-row">
+            <Button icon={ListChecks} variant="secondary" onClick={() => runTask('校验 Graph 中', validateCurrentWorkflow)}>
+              校验
+            </Button>
+            <Button icon={Save} onClick={() => runTask('保存 Graph 中', saveCurrentWorkflow)}>
+              保存
+            </Button>
+            <Button icon={Play} onClick={() => runTask('执行 Graph 中', executeCurrentWorkflow)}>
+              执行
+            </Button>
           </div>
-        ) : null}
 
-        <StartInputForm fields={startFields} values={startInputs} onChange={updateStartInput} />
+          {validationResult ? (
+            <div className={validationResult.ok ? 'hint-box' : 'hint-box error-box'}>
+              <strong>{validationResult.ok ? '可执行' : '暂不可执行'}</strong>
+              <span>{validationResult.ok ? `${validationResult.node_count} 个节点已通过运行前校验` : validationResult.error}</span>
+            </div>
+          ) : null}
 
-        <NodeInspector
-          node={selectedNode}
-          remote={remote}
-          onChange={updateSelectedNodeData}
-          onDelete={deleteSelectedNode}
-          onRunNode={() => runTask('运行 Query Generate 节点中', runSelectedNode)}
-        />
+          <StartInputForm fields={startFields} values={startInputs} onChange={updateStartInput} />
 
-        {queryNodeResult ? <QuerySetResult result={queryNodeResult.query_set} title="节点生成结果" /> : null}
-        {executeResult ? <ExecutionResult result={executeResult} /> : null}
+          <NodeInspector
+            node={selectedNode}
+            remote={remote}
+            onChange={updateSelectedNodeData}
+            onDelete={deleteSelectedNode}
+            onRunNode={() => runTask('运行 Query Generate 节点中', runSelectedNode)}
+          />
+
+          {queryNodeResult ? <QuerySetResult result={queryNodeResult.query_set} title="节点生成结果" /> : null}
+          {executeResult ? <ExecutionResult result={executeResult} /> : null}
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+function WorkflowLanding({ templates, workflows, onCreate, onLoad }) {
+  return (
+    <div className="workflow-entry-layout">
+      <Panel title="加载已有 Graph">
+        {workflows.length ? (
+          <div className="graph-entry-list">
+            {workflows.map((workflow) => (
+              <button className="graph-entry-card" key={workflow.id} onClick={() => onLoad(String(workflow.id))}>
+                <span>
+                  <strong>{workflow.name}</strong>
+                  <small>Graph #{workflow.id} · {workflow.executable ? '可执行' : '草稿'}</small>
+                </span>
+                {workflow.runtime_capable ? <StatusPill status="ready" /> : null}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <EmptyState title="暂无 Graph" body="从右侧选择模板新建一个 graph。" />
+        )}
+      </Panel>
+
+      <Panel title="新建 Graph">
+        <div className="graph-template-grid">
+          {templates.map((template) => (
+            <button className="graph-template-card" key={template.id} onClick={() => onCreate(template.id)}>
+              <strong>{template.name}</strong>
+              <span>{template.description}</span>
+              <small>{template.node_types.join(' -> ')}</small>
+            </button>
+          ))}
+        </div>
       </Panel>
     </div>
   );
@@ -388,10 +431,39 @@ function QuerySetResult({ result, title }) {
 }
 
 function ExecutionResult({ result }) {
+  const outputs = result.outputs || {};
+  const querySet = outputs.query_set;
+  const evalRun = outputs.eval_run;
   return (
     <div className="result">
       <h3>执行结果</h3>
-      <pre>{JSON.stringify(result.outputs || {}, null, 2)}</pre>
+      {querySet || evalRun || outputs.answer_count ? (
+        <div className="result-summary">
+          {querySet ? (
+            <div>
+              <span>Query Set</span>
+              <strong>#{querySet.id}</strong>
+            </div>
+          ) : null}
+          {outputs.answer_count ? (
+            <div>
+              <span>Answers</span>
+              <strong>{outputs.answer_count}</strong>
+            </div>
+          ) : null}
+          {evalRun ? (
+            <div>
+              <span>Eval Run</span>
+              <strong>#{evalRun.id}</strong>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {evalRun?.metrics && Object.keys(evalRun.metrics).length ? (
+        <pre>{JSON.stringify(evalRun.metrics, null, 2)}</pre>
+      ) : (
+        <pre>{JSON.stringify(outputs, null, 2)}</pre>
+      )}
       <h3>Trace</h3>
       <div className="trace-list">
         {(result.trace || []).map((item) => (

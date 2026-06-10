@@ -61,13 +61,13 @@ export const nodeCatalog = [
   {
     type: 'answer',
     label: 'Answer',
-    caption: '返回结果',
+    caption: '批量生成答案',
     defaults: { label: 'Answer', outputKey: 'answer', includeContexts: true },
   },
   {
     type: 'ragas_eval',
     label: 'RAGAS Eval',
-    caption: 'reference-free 评测',
+    caption: '消费 Answer 结果评分',
     defaults: { label: 'RAGAS Eval', metricPreset: 'reference_free', limit: '' },
   },
   {

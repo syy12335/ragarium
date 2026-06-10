@@ -15,14 +15,13 @@ import { ConfigPage } from './pages/ConfigPage.jsx';
 import { DataPage } from './pages/DataPage.jsx';
 import { EvaluationPage } from './pages/EvaluationPage.jsx';
 import { HomePage } from './pages/HomePage.jsx';
-import { QueryPage } from './pages/QueryPage.jsx';
 import { WorkflowPage } from './pages/WorkflowPage.jsx';
 
 const tabs = [
   { id: 'home', label: '导航', subtitle: '产品入口与 Runtime API', icon: Home },
-  { id: 'data', label: '数据', subtitle: 'name-db 导入、Chunk 和索引状态', icon: Database },
+  { id: 'data', label: '数据', subtitle: '知识库与评测集', icon: Database },
   { id: 'workflow', label: 'Workflow', subtitle: 'Dify-like RAG pipeline 画布', icon: GitBranch },
-  { id: 'queries', label: 'Query 生成', subtitle: '生成 query-only 评测集', icon: WandSparkles },
+  { id: 'queries', label: 'Query 生成', subtitle: '进入数据页的评测集入口', icon: WandSparkles },
   { id: 'evaluation', label: '评测', subtitle: '无参考答案 RAGAS 运行', icon: ListChecks },
   { id: 'config', label: '配置', subtitle: 'Provider、模型角色和默认 Chunk 参数', icon: SlidersHorizontal },
 ];
@@ -58,6 +57,7 @@ function useRemoteState() {
 export default function App() {
   const remote = useRemoteState();
   const [activeTab, setActiveTab] = useState('home');
+  const [dataIntent, setDataIntent] = useState({ section: 'landing', key: 0 });
   const [status, setStatus] = useState('就绪');
   const active = tabs.find((tab) => tab.id === activeTab) || tabs[0];
 
@@ -78,6 +78,18 @@ export default function App() {
     }
   }
 
+  function navigate(tabId) {
+    if (tabId === 'queries') {
+      setDataIntent({ section: 'querySets', key: Date.now() });
+      setActiveTab('data');
+      return;
+    }
+    if (tabId === 'data') {
+      setDataIntent({ section: 'landing', key: Date.now() });
+    }
+    setActiveTab(tabId);
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -95,7 +107,7 @@ export default function App() {
               <button
                 key={tab.id}
                 className={activeTab === tab.id ? 'nav-item active' : 'nav-item'}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => navigate(tab.id)}
               >
                 <Icon size={18} />
                 <span>{tab.label}</span>
@@ -120,10 +132,9 @@ export default function App() {
           </Button>
         </header>
 
-        {activeTab === 'home' ? <HomePage remote={remote} onNavigate={setActiveTab} /> : null}
-        {activeTab === 'data' ? <DataPage remote={remote} runTask={runTask} /> : null}
+        {activeTab === 'home' ? <HomePage remote={remote} onNavigate={navigate} /> : null}
+        {activeTab === 'data' ? <DataPage remote={remote} runTask={runTask} initialSection={dataIntent.section} navigationKey={dataIntent.key} /> : null}
         {activeTab === 'workflow' ? <WorkflowPage remote={remote} runTask={runTask} /> : null}
-        {activeTab === 'queries' ? <QueryPage remote={remote} runTask={runTask} /> : null}
         {activeTab === 'evaluation' ? <EvaluationPage remote={remote} runTask={runTask} /> : null}
         {activeTab === 'config' ? <ConfigPage runTask={runTask} /> : null}
       </main>

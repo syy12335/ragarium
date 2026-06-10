@@ -8,13 +8,13 @@ import {
   WandSparkles,
 } from 'lucide-react';
 import { API_BASE, api } from '../api.js';
-import { Button, EmptyState, Panel, StatusPill } from '../components/ui.jsx';
+import { Panel, StatusPill } from '../components/ui.jsx';
 
 const moduleCards = [
   {
     id: 'data',
     title: '数据',
-    body: '管理 name-db、来源、Chunk 和索引状态',
+    body: '管理知识库与 query-only 评测集',
     icon: Database,
   },
   {
@@ -26,7 +26,7 @@ const moduleCards = [
   {
     id: 'queries',
     title: 'Query 生成',
-    body: '基于示例 Query 生成评测集',
+    body: '快捷进入数据页的评测集入口',
     icon: WandSparkles,
   },
   {
@@ -69,13 +69,9 @@ export function HomePage({ remote, onNavigate }) {
     [remote.workflows, remote.knowledgeBases],
   );
 
-  const curlExample =
-    capabilities?.output?.examples?.curl ||
-    `curl -X POST ${API_BASE}/api/runtime/workflows/1/invoke -H 'Content-Type: application/json' -d '{"question":"如何导入文档？"}'`;
-
   return (
-    <div className="home-layout">
-      <Panel title="产品导航">
+    <div className="home-dashboard">
+      <Panel title="产品导航" className="home-main-panel">
         <div className="launch-grid">
           {moduleCards.map((card) => {
             const Icon = card.icon;
@@ -92,8 +88,8 @@ export function HomePage({ remote, onNavigate }) {
         </div>
       </Panel>
 
-      <Panel title="运行概览">
-        <div className="db-summary">
+      <Panel title="运行概览" className="home-overview-panel">
+        <div className="compact-overview">
           <div>
             <span>知识库 DB</span>
             <strong>{remote.knowledgeBases.length}</strong>
@@ -113,53 +109,15 @@ export function HomePage({ remote, onNavigate }) {
         </div>
       </Panel>
 
-      <Panel
-        title="Runtime API"
-        className="runtime-panel"
-        actions={
-          <Button icon={PlugZap} variant="secondary" onClick={() => onNavigate('workflow')}>
-            进入 Workflow
-          </Button>
-        }
-      >
-        <div className="runtime-card">
+      <Panel title="Runtime API" className="home-runtime-panel">
+        <div className="runtime-compact-card">
+          <PlugZap size={20} />
           <div>
-            <span>服务地址</span>
-            <strong>{API_BASE}</strong>
+            <strong>外部 HTTP 调用</strong>
+            <span>{API_BASE} · contract {capabilities?.output?.contract_version || 'v1'}</span>
           </div>
-          <div>
-            <span>Contract</span>
-            <strong>{capabilities?.output?.contract_version || 'v1'}</strong>
-          </div>
-          <div>
-            <span>Workflow 调用</span>
-            <StatusPill status={capabilities?.output?.capabilities?.workflow_invoke ? 'ready' : 'failed'} />
-          </div>
+          <StatusPill status={capabilities?.output?.capabilities?.workflow_invoke ? 'ready' : 'failed'} />
         </div>
-
-        <div className="endpoint-list">
-          <code>GET /api/runtime/capabilities</code>
-          <code>GET /api/runtime/workflows</code>
-          <code>POST /api/runtime/workflows/&#123;workflow_id&#125;/invoke</code>
-          <code>POST /api/runtime/workflows/&#123;workflow_id&#125;/batch</code>
-        </div>
-
-        <pre>{curlExample}</pre>
-      </Panel>
-
-      <Panel title="可调用 Workflow">
-        {callableWorkflows.length ? (
-          <div className="card-list">
-            {callableWorkflows.slice(0, 6).map((workflow) => (
-              <article className="card-item" key={workflow.id}>
-                <strong>{workflow.name}</strong>
-                <span>Workflow #{workflow.id}</span>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <EmptyState title="暂无可调用 Workflow" body="准备索引后，Workflow 会出现在这里。" />
-        )}
       </Panel>
     </div>
   );
