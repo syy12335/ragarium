@@ -4,7 +4,7 @@ embedding:
 
 generation:
   provider: "qwen"
-  model_name: "qwen-flash"
+  model_name: "qwen3.7-plus"
   temperature: 0.2
   max_tokens: 1024
   parser: "str"
@@ -30,6 +30,6 @@ generation:
 
 evaluation:
   provider: "qwen"
-  model_name: "qwen-plus"
+  model_name: "qwen3.7-plus"
   temperature: 0      # 评估建议用 0，保证判分稳定
   max_tokens: 1024

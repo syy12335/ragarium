@@ -150,7 +150,7 @@ def _build_ragas_components(config: YamlConfigReader):
         or roles_cfg.get("generation.model_name")
         or config.get(f"llm.{eval_provider}.default_eval_model_name")
         or config.get(f"llm.{eval_provider}.default_model_name")
-        or "qwen-plus"
+        or "qwen3.7-plus"
     )
 
     eval_temperature = roles_cfg.get("evaluation.temperature", 0)

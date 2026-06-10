@@ -5,8 +5,8 @@ import { Button, Field, IconButton, Panel } from '../components/ui.jsx';
 
 const defaultRoles = {
   embedding: { provider: 'qwen', model_name: 'text-embedding-v4' },
-  answer: { provider: 'qwen', model_name: 'qwen-flash', temperature: 0.2, max_tokens: 1024 },
-  judge: { provider: 'qwen', model_name: 'qwen-plus', temperature: 0, max_tokens: 1024 },
+  answer: { provider: 'qwen', model_name: 'qwen3.7-plus', temperature: 0.2, max_tokens: 1024 },
+  judge: { provider: 'qwen', model_name: 'qwen3.7-plus', temperature: 0, max_tokens: 1024 },
 };
 
 export function ConfigPage({ runTask }) {

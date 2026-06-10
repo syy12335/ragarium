@@ -53,22 +53,17 @@
    pip install -r requirements.txt
    ```
 
-3. 配置模型与 API Key  （建议使用千问api，其他的模型还没测试，预计一个月内补齐其他模型的测试）
+3. 配置模型与 API Key
 
-   1）在配置文件中选择或声明使用的模型提供方与模型名称（对话模型、embedding 模型等）；  
-   2）在系统环境中设置对应的 API Key，例如：
+   默认配置只使用千问：`text-embedding-v4` 负责 Embedding，`qwen3.7-plus` 负责回答和评测。先设置一个千问 API Key 即可：
 
    Windows 当前会话示例：
 
    ```bat
    set API_KEY_QWEN=your-api-key # 千问
    ```
-   或
-4. ```bat
-   set OPENAI_API_KEY=your-api-key # OpenAI
-   ```
-   （如果需要使用其他模型，请自行配置`config/application.yaml`中的`llm`部分）
-   （目前`embedding`仅支持`Qwen`和`openai`）
+
+   如果确实需要接入其他 Provider，再到「配置」页或 `config/application.yaml` 里手动新增。
 
 ## 4. Quick Start：一条命令跑通
 

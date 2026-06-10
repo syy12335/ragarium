@@ -48,7 +48,7 @@ def build_embedding_from_config(app_config: YamlConfigReader) -> Embeddings:
           qwen:
             base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
             api_key_env: "API_KEY_QWEN"
-            default_model_name: "qwen-plus"
+            default_model_name: "qwen3.7-plus"
           ...
 
     2）model_roles.yaml 负责“角色 → provider → model_name”映射：
