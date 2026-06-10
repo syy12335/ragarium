@@ -63,6 +63,39 @@ class FakeEvalEngine:
         return FakeEvalResult(overall={"faithfulness": 1.0, "answer_relevancy": 0.9}, csv_path="fake.csv")
 
 
+def test_api_delete_source_removes_chunks_and_updates_kb_status(tmp_path):
+    store = ProductStore(tmp_path / "state.sqlite")
+    kb = store.create_knowledge_base("Docs")
+    source = store.create_source(
+        kb["id"],
+        source_type="url",
+        name="https://example.com/doc",
+        uri="https://example.com/doc",
+        status="ready",
+    )
+    store.replace_source_chunks(
+        kb["id"],
+        source["id"],
+        [
+            {
+                "chunk_index": 0,
+                "content": "example chunk",
+                "metadata": {"source": "https://example.com/doc", "chunk_index": 0},
+            }
+        ],
+    )
+    store.update_knowledge_base_index_status(kb["id"], status="ready")
+
+    client = TestClient(create_app(store=store))
+    response = client.delete(f"/api/knowledge-bases/{kb['id']}/sources/{source['id']}")
+
+    assert response.status_code == 200
+    assert response.json()["deleted_source"]["id"] == source["id"]
+    assert store.list_sources(kb["id"]) == []
+    assert store.list_chunks(kb["id"]) == []
+    assert store.get_knowledge_base(kb["id"])["index_status"] == "not_indexed"
+
+
 def test_api_import_index_generate_and_eval(tmp_path):
     store = ProductStore(tmp_path / "state.sqlite")
 

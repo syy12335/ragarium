@@ -597,6 +597,48 @@ def create_app(
         except Exception as exc:
             raise _http_error(exc)
 
+    @app.delete("/api/knowledge-bases/{knowledge_base_id}/sources/{source_id}")
+    def delete_source(knowledge_base_id: int, source_id: int) -> Dict[str, Any]:
+        try:
+            source = store.delete_source(knowledge_base_id, source_id)
+            stored_path = source.get("stored_path")
+            if stored_path:
+                try:
+                    file_path = Path(stored_path).resolve()
+                    upload_root = ingestion_service.upload_root.resolve()
+                    if file_path == upload_root or upload_root in file_path.parents:
+                        file_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+            remaining_sources = store.list_sources(knowledge_base_id)
+            remaining_chunks = store.list_chunks(knowledge_base_id)
+            if not remaining_sources:
+                store.update_knowledge_base_index_status(
+                    knowledge_base_id,
+                    status="not_indexed",
+                    error=None,
+                )
+            elif remaining_chunks:
+                store.update_knowledge_base_index_status(
+                    knowledge_base_id,
+                    status="stale",
+                    error=None,
+                )
+            else:
+                store.update_knowledge_base_index_status(
+                    knowledge_base_id,
+                    status="failed",
+                    error="当前知识库没有可索引 chunks，请先导入可解析的来源",
+                )
+
+            kb = store.get_knowledge_base(knowledge_base_id)
+            kb["sources"] = remaining_sources
+            kb["chunks"] = store.list_chunks(knowledge_base_id, limit=20)
+            return {"deleted_source": source, "knowledge_base": kb}
+        except Exception as exc:
+            raise _http_error(exc)
+
     def build_knowledge_base_index(
         knowledge_base_id: int,
         *,

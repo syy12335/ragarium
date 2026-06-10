@@ -273,6 +273,17 @@ class ProductStore:
             ).fetchall()
         return [self._row_to_dict(row) for row in rows]
 
+    def delete_source(self, knowledge_base_id: int, source_id: int) -> Dict[str, Any]:
+        source = self.get_source(source_id)
+        if int(source["knowledge_base_id"]) != int(knowledge_base_id):
+            raise KeyError(f"source not found: {source_id}")
+        with self.connect() as conn:
+            conn.execute(
+                "DELETE FROM sources WHERE id = ? AND knowledge_base_id = ?",
+                (source_id, knowledge_base_id),
+            )
+        return source
+
     def replace_source_chunks(
         self,
         knowledge_base_id: int,
