@@ -1,286 +1,288 @@
-﻿English | [中文说明](README_zh.md)
-# rag-eval-scaffold
+# RAG Eval
 
-A lightweight RAG evaluation scaffold that runs the full pipeline — “dataset → vector store → RAG workflow → evaluation” — with a single command. It comes with a Streamlit-based lightweight visualization console, and exposes a decoupled vector-store management layer (VectorManager), RAG Runner layer, and evaluation layer, all connected via a unified `invoke` interface.
+本项目是一个本地运行的 RAG 评测产品。它把资料导入、知识库切分与索引、Workflow 编排、Query 评测集生成、RAGAS 评测和外部 HTTP 调用放在同一个控制台里，适合用来快速验证一个 RAG 系统是否“能检索、能回答、能评测、能被其他程序调用”。
 
-The default example ships with a Chinese QA dataset and a basic RAG workflow, plus configuration examples for model services (Qwen by default). The overall design is not tied to any single vendor; you can plug in any compatible chat and embedding service via configuration.
+默认语言是中文；默认模型服务商是千问。
 
-## 1. Project Positioning and Target Users
+## 你可以用它做什么
 
-1. As a RAG / LLM engineering scaffold  
-   For users with experimentation or engineering needs, this project helps you, under a unified protocol, to:  
-   1) build and manage vector stores;  
-   2) orchestrate one or more RAG workflows that output a unified structure;  
-   3) call the evaluation engine to compare different workflows, datasets, and metrics.
+- 导入自己的资料包：支持 `.txt`、`.md`、`.html`、`.pdf`、`.docx` 和普通静态单页 URL。
+- 管理本地知识库 DB：资料会解析、切分成 chunks，并写入本地 Chroma 向量库。
+- 搭建 Workflow：用画布保存自己的 Graph，也可以从空白、离线建库、RAG、评测模板开始。
+- 生成 query-only 评测集：输入 3-5 个示例 Query，模型会结合知识库内容生成更多 Query。
+- 做无参考答案评测：默认使用不依赖标准答案的 RAGAS 指标。
+- 对外提供 Runtime API：其他语言可以通过 HTTP/JSON 调用某个 RAG Graph 的输入输出。
 
-2. As a 0-to-1 learning project for RAG  
-   For users who lack end-to-end engineering experience, this project already stitches together the full pipeline “dataset → vector store → retrieval → generation → evaluation”.  
-   You can start from the default implementation and gradually replace or extend modules, without constantly jumping between different component documentations.
+## 快速开始
 
-## 2. Core Features (Current Version)
+### 1. 安装依赖
 
-1. One-line vector-store construction and VectorManager retrieval  
-   Through a unified entry point, you can in a single line:  
-   1) load the benchmark dataset according to configuration;  
-   2) build or update the vector store;  
-   3) obtain a VectorManager instance for retrieval, document CRUD, and retriever construction.  
-   Configuration is centralized in `config/application.yaml`, including data paths, chunking strategy, vector-store persistence path, and more.
+建议使用 Python 3.10+。
 
-2. Full decoupling of dataset/vector layer, RAG layer, and evaluation layer  
-   1) The dataset/vector layer only handles “samples → chunks → vector store” and exposes VectorManager upwards.  
-   2) The RAG layer only cares about “how to use VectorManager for retrieval and call the LLM to form a workflow”, and exposes results via a Runner’s `invoke`.  
-   3) The evaluation layer depends only on the Runner protocol and sample format, and is agnostic to the underlying vector store and workflow implementation, making it easy to swap datasets, models, and pipelines.
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
-3. Unified `invoke` protocol  
-   1) The vector-store management tool provides retrieval via a unified interface (for example, `VectorManager().invoke(query: str, k: int = 5) -> List[Document]`), focusing solely on “given a query, which documents are returned”;  
-   2) All Runners implement a unified `Runner().invoke(question: str) -> dict` interface and return an agreed structure (question, generation, contexts, etc.);  
-   3) The evaluation engine always starts evaluation via `EvalEngine().invoke(runner)`, which internally handles batch execution and concrete evaluation methods.
+安装前端依赖：
 
-4. Low entry barrier and high extensibility  
-   The default chunking logic and workflow structure are kept as straightforward as possible, so beginners can read and modify the code directly:  
-   1) Beginners can start from the default chunking and workflow, tweak prompts, retrieval strategies, or add/remove simple nodes;  
-   2) Advanced users can completely ignore the default implementation, take a retriever from VectorManager, implement a protocol-compliant Runner (keeping the `invoke` signature and output structure), and plug it directly into the evaluation layer to compare different RAG schemes.
+```bash
+cd frontend
+npm install
+cd ..
+```
 
-## 3. Installation and Environment
+### 2. 配置千问 API Key
 
-1. Python version  
-   Python 3.10 or above is recommended.
+默认配置只需要一个千问 Key：
 
-2. Install dependencies  
+```bash
+export API_KEY_QWEN="your-api-key"
+```
 
-   In the project root:
+Windows 当前会话：
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+```bat
+set API_KEY_QWEN=your-api-key
+```
 
-3. Configure models and API keys  
+默认模型角色：
 
-   1) In the configuration file, select or declare the model provider and model names (chat model, embedding model, etc.);  
-   2) Set the corresponding API key in your system environment variables, for example:
+- Embedding：`text-embedding-v4`
+- Answer：`qwen3.7-plus`
+- Judge：`qwen3.7-plus`
 
-   On Windows (current session):
+如需修改模型或 Provider，可以在产品里的「配置」页调整，也可以直接编辑：
 
-   ```bat
-   set API_KEY_XXX=your-api-key
-   python quickstart.py
-   ```
+- `config/application.yaml`
+- `config/model_roles.yaml`
 
-   On Linux or macOS:
+### 3. 启动后端
 
-   ```bash
-   export API_KEY_XXX="your-api-key"
-   python quickstart.py
-   ```
+```bash
+.venv/bin/python -m uvicorn rag_eval.api.app:app --host 127.0.0.1 --port 8000
+```
 
-   The exact environment variable names and configuration examples are defined in `config/application.yaml` and related docs.
+健康检查：
 
-## 4. Quick Start: Run the Full Pipeline with One Command
+```bash
+curl http://127.0.0.1:8000/api/health
+```
 
-In the project root:
+### 4. 启动前端
+
+另开一个终端：
+
+```bash
+cd frontend
+npm run dev -- --port 5173
+```
+
+打开：
+
+```text
+http://127.0.0.1:5173/
+```
+
+## 推荐工作顺序
+
+### 1. 配置模型
+
+进入「配置」页，确认默认 Provider 和三个模型角色：
+
+- Embedding：用于把 chunks 写入向量库。
+- Answer：用于 RAG 回答。
+- Judge：用于 RAGAS 评测。
+
+第一版默认只保留千问，普通使用无需新增 Provider。
+
+### 2. 准备数据
+
+进入「数据」页：
+
+1. 选择「知识库」。
+2. 创建一个知识库。
+3. 导入资料：选择本地文件，或粘贴一个 URL。
+4. 导入完成后构建索引。
+
+说明：
+
+- `.doc` 暂不支持，请先转成 `.docx`。
+- URL 默认做静态 HTML 抓取；动态页面、登录页或需要浏览器渲染的页面可能无法解析正文。
+- Chunk size / overlap 放在「高级设置」里，默认值通常可以直接使用。
+
+### 3. 搭建 Workflow
+
+进入「Workflow」页后，先选择：
+
+- 加载已有 Graph
+- 新建 Graph
+
+新建 Graph 可以选择：
+
+- 空白
+- 创建离线数据库
+- 进行 RAG
+- 评测
+
+保存 Graph 不要求它立刻可运行；执行前才会做可执行性校验。一个可被 Runtime API 调用的 RAG Graph 通常需要从 `Start` 接收 `question`，经过 `Retrieve -> Prompt / LLM -> Answer`，最后到 `End`。
+
+### 4. 生成评测集
+
+进入「数据」页的「评测集」：
+
+1. 选择一个知识库 DB。
+2. 输入 3-5 个示例 Query。
+3. 点击生成。
+
+模型会结合知识库 chunks 和示例 Query 的风格生成 query-only 数据集，不生成 reference answer。
+
+### 5. 运行评测
+
+进入「评测」页：
+
+1. 选择 Query 集。
+2. 选择一个可回答 Query 的 RAG Graph。
+3. 点击运行评测。
+
+query-only 评测默认使用 reference-free 指标，例如：
+
+- `faithfulness`
+- `answer_relevancy`
+
+只有样本包含 `ground_truth` / `reference` 时，才适合使用 context precision / recall 这类依赖参考答案的指标。
+
+### 6. 部署 Runtime API
+
+进入「导航」页的第 6 步「部署 API 调用」，点击「一键部署」后，会展示：
+
+- Runtime API 服务地址
+- Contract version
+- 可调用 Graph 列表
+- 某个 Graph 的输入 JSON
+- 输出 JSON
+- `invoke` / `batch` 的 curl 示例
+
+Runtime API 只暴露可从 `question` 执行到 `Answer` 的 RAG Graph。离线建库和评测 Graph 不会作为外部 invoke 目标。
+
+## Runtime API
+
+### 查询能力
+
+```bash
+curl http://127.0.0.1:8000/api/runtime/capabilities
+```
+
+### 查询可调用 Graph
+
+```bash
+curl http://127.0.0.1:8000/api/runtime/workflows
+```
+
+### 单条调用
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/runtime/workflows/1/invoke \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"如何导入文档？"}'
+```
+
+成功响应结构：
+
+```json
+{
+  "ok": true,
+  "output": {
+    "question": "如何导入文档？",
+    "answer": "模型生成的答案",
+    "contexts": ["检索命中的上下文"]
+  },
+  "metadata": {
+    "workflow_id": 1,
+    "knowledge_base_id": 1,
+    "collection_name": "kb_1_docs",
+    "top_k": 3,
+    "context_count": 1
+  }
+}
+```
+
+### 批量调用
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/runtime/workflows/1/batch \
+  -H 'Content-Type: application/json' \
+  -d '{"questions":["如何导入文档？","如何运行评测？"]}'
+```
+
+## 本地数据保存在哪里
+
+第一版是单用户本地产品，没有登录、权限和多租户。
+
+常见本地数据：
+
+- SQLite 状态库：默认在 `var/app` 下。
+- 上传原文件：保存到本地应用目录。
+- Chroma 向量库：按配置或知识库 collection 落本地目录。
+- 评测结果：保存在本地状态库，并可按旧脚手架配置输出 CSV。
+
+这些目录通常属于本地运行产物，不应该提交到 Git。
+
+## 旧脚手架入口
+
+如果你只想跑旧的命令行 demo，仍可以使用：
 
 ```bash
 python quickstart.py
 ```
 
-With the web frontend:
+旧 Streamlit 控制台仍保留：
 
 ```bash
 streamlit run streamlit_app.py
 ```
 
-The default flow includes:
-
-1. Build the benchmark dataset and vector store  
-   1) Build evaluation samples from raw data;  
-   2) Chunk the context fields according to configuration to produce chunks;  
-   3) Build or update the local vector store and persist it to the configured directory.
-
-2. Load evaluation samples  
-   Load normalized samples from `dataset.samples_path`.
-
-3. Run the default Runner in batch RAG mode  
-   The default Runner uses VectorManager internally for context retrieval and the configured model for answer generation,  
-   and outputs fields like `question`, `generation`, and `contexts` according to the agreed schema.
-
-4. Run the evaluation engine  
-   1) Normalize Runner outputs into standard record structures;  
-   2) Use RAGAS and other evaluation methods to compute global and per-sample metrics;  
-   3) Print results to the console and optionally export CSV files as configured.
-
-With dependencies, configuration, and API keys set correctly, this single command runs the full loop from data to evaluation report.
-
-## 5. Advanced Usage Overview
-
-This section focuses on concepts and interface contracts. See the example scripts in the repository for concrete usage.
-
-### 5.1 Using VectorManager for Custom Retrieval and Management
-
-A typical flow:
-
-1. Use the unified entry `VectorDatabaseBuilder().invoke()` to construct the vector store and obtain a VectorManager (internally loading configuration from `config/application.yaml` by convention).  
-
-2. Use VectorManager’s methods to:  
-   1) append new documents under conditions (`add_documents(...)`);  
-   2) delete or rebuild collections (`delete_collection(...)`);  
-   3) get a retriever or directly retrieve a list of documents (`get_retriever(...)` or `invoke(...)`);  
-   4) combine with your own models to perform QA or other analysis.
-
-VectorManager hides the underlying vector-store implementation details, so RAG workflows only depend on a unified retrieval interface.
-
-Example:
-
-```python
-from rag_eval import VectorDatabaseBuilder
-
-# Build the vector store according to configuration and get its manager (VectorManager)
-vector_manager = VectorDatabaseBuilder().invoke()
-
-# Use invoke for similarity search; returns a list of documents
-docs = vector_manager.invoke("Which two companies co-developed Sengoku Musou 3?", k=5)
-```
-
-If you want to use a custom dataset, please refer to `rag_eval/dataset_tools/__init__.py`.
-
-### 5.2 Implementing Custom Runners and Plugging into the Evaluation Layer
-
-Runner protocol (simplified):
-
-```python
-class MyRunner:
-    def __init__(self, vector_manager, ...):
-        self.vector_manager = vector_manager
-        # other model, prompt, and workflow configs
-
-    def invoke(self, question: str) -> dict:
-        """Return a structured result for the evaluation layer:
-
-        question:   original question
-        generation: final model answer (string)
-        contexts:   list of retrieved contexts used to answer this question
-        """
-        ...
-        return {
-            "question": question,
-            "generation": answer_text,
-            "contexts": context_list,
-        }
-```
-
-The evaluation layer depends only on the input–output protocol of `invoke`, so:  
-1) as long as the returned structure matches the contract, it can be evaluated;  
-2) model choice, prompt composition, and whether you use multi-step workflows are all opaque to the evaluation layer.
-
-### 5.3 Evaluating with the Unified Evaluation Engine
-
-Typical entry point (simplified):
-
-```python
-from rag_eval import EvalEngine
-
-runner = MyRunner(...)
-eval_result = EvalEngine().invoke(runner)
-eval_result.show_console(top_n=5)
-```
-
-Internally, EvalEngine:
-
-1. Loads evaluation samples (optionally controlled by configuration, such as sample limits);  
-2. Calls the Runner’s `invoke` in batch;  
-3. Invokes RAGAS and other metrics;  
-4. Aggregates global and per-sample metrics and provides console and frontend display helpers.
-
-### 5.4 Using the Streamlit Frontend for Debugging and Demo (Optional)
-
-To use the graphical interface for debugging or demo:
-
-1. In the project root:
-
-   ```bash
-   streamlit run streamlit_app.py
-   ```
-
-2. The frontend typically provides two modes:  
-   1) Evaluation mode  
-      1) Runs the evaluation flow under the current configuration and shows global metrics and per-sample scores;  
-      2) Lets you choose the number of samples and trigger evaluation, with progress and estimated time displayed on the page;  
-      3) Supports inspecting a single sample’s question, ground_truth, generation, and contexts.  
-   2) Chat mode  
-      1) Reuses the current Runner configuration for interactive RAG QA;  
-      2) Helps you qualitatively inspect retrieval and answer quality alongside quantitative evaluation results.
-
-The frontend does not change the underlying interface contracts. It simply wraps the existing Runner, evaluation engine, and results into an easy-to-use control panel.
-
-## 6. Configuration and Directory Structure (Overview)
-
-The actual layout may evolve across versions; always refer to the repository for the latest structure. A typical layout:
+但当前主产品入口是 React + FastAPI：
 
 ```text
-config/
-  application.yaml          # Global config: datasets, vector store, models, evaluation, etc.
-  agents.yaml               # Model roles, prompts, agent configs, etc.
-
-datasets/
-  raw/                      # Raw datasets
-  processed/                # Processed samples / chunks
-
-rag_eval/
-  __init__.py
-  core/                     # Core types and interface definitions
-    __init__.py
-    interfaces.py
-    types.py
-  dataset_tools/            # Tools from raw to samples and chunks
-    __init__.py
-    cmrc2018/
-      ...                   # CMRC2018-related scripts
-  embeddings/
-    __init__.py
-    factory.py              # Embedding factory and wrappers
-  eval_engine/              # Batch execution and evaluation engine (EvalEngine, etc.)
-    __init__.py
-    engine.py
-    eval_result.py
-    rag_batch_runner.py
-    ragas_eval.py
-  rag/                      # Default RAG workflow and Runner
-    __init__.py
-    normal_rag.py
-    runner.py
-  vector/                   # Vector-store builder and VectorManager
-    __init__.py
-    vector_builder.py
-    vector_store_manager.py
-
-utils/
-  ...                       # Common utilities
-
-quickstart.py               # One-command end-to-end example
-quickstart.ipynb            # Corresponding notebook example (optional)
-streamlit_app.py            # Streamlit console entry
+http://127.0.0.1:5173/
 ```
 
-Main configuration lives in `config/application.yaml`, typically including:
+## 目录结构
 
-1. Dataset paths and sample size limits;  
-   2. Vector-store backend config (persistence directory, collection name, embedding model, etc.);  
-   3. Retrieval parameters (for example, top_k);  
-   4. Model and API settings;  
-   5. Evaluation output paths and evaluation parameters.
+```text
+frontend/                 # React + React Flow 产品前端
+rag_eval/api/             # FastAPI HTTP API
+rag_eval/ingestion/       # 文件 / URL 解析、chunk 生成
+rag_eval/workflow/        # Graph 校验与执行
+rag_eval/query_generation.py
+rag_eval/vector/          # Chroma 向量库构建与管理
+rag_eval/eval_engine/     # RAGAS 评测
+rag_eval/storage.py       # SQLite 本地状态库
+config/                   # 模型、Provider、chunk、评测配置
+tests/                    # 后端单测与集成测试
+```
 
-## 7. Current Status and Roadmap (Overview)
+## 测试与构建
 
-1. The current version already provides:  
-   1) full decoupling of dataset/vector layer, RAG layer, and evaluation layer;  
-   2) one-line vector-store construction and VectorManager-based management;  
-   3) a unified `invoke` protocol shared by Runners and the evaluation engine;  
-   4) a one-command end-to-end run plus advanced customization entry points and improved frontend progress feedback;  
-   5) a Streamlit console for debugging and demo.
+后端测试：
 
-2. Planned extensions include:  
-   1) additional benchmark datasets and example Runners;  
-   2) more evaluation metrics and richer configuration for evaluation;  
-   3) more complete configuration templates and examples for different model services.
+```bash
+.venv/bin/python -m pytest -q
+```
 
-If you only want to quickly run an end-to-end RAG-plus-evaluation pipeline, start from `quickstart.py`.  
-If you care more about engineering and extensibility, start from VectorManager, the Runner protocol, and the Streamlit frontend, and gradually replace or extend the modules.
+前端构建：
+
+```bash
+cd frontend
+npm run build
+```
+
+## 设计约束
+
+- 第一版是单机本地产品。
+- URL 只做单页导入，不做站点爬取。
+- 默认不替用户把搜索页换成其他搜索服务；用户给什么 URL，就解析这个 URL 本身。
+- 默认评测走 query-only / reference-free 路径，避免空 reference 造成误导性分数。
+- Runtime API 只负责调用已准备好的 RAG Graph，不隐式触发导入、切分、索引或评测。
