@@ -788,6 +788,11 @@ select:focus {
   align-items: start;
 }
 
+.workflow-entry-page {
+  display: grid;
+  gap: 12px;
+}
+
 .graph-entry-list,
 .graph-template-grid {
   display: grid;

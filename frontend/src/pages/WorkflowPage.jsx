@@ -232,10 +232,28 @@ export function WorkflowPage({ remote, runTask }) {
   if (viewMode === 'landing') {
     return (
       <WorkflowLanding
-        templates={templates}
+        onChooseLoad={() => setViewMode('load')}
+        onChooseNew={() => setViewMode('new')}
+      />
+    );
+  }
+
+  if (viewMode === 'load') {
+    return (
+      <WorkflowLoadEntry
         workflows={remote.workflows}
-        onCreate={(templateId) => runTask('新建 Graph 中', () => createNewGraph(templateId))}
+        onBack={() => setViewMode('landing')}
         onLoad={loadWorkflow}
+      />
+    );
+  }
+
+  if (viewMode === 'new') {
+    return (
+      <WorkflowNewEntry
+        templates={templates}
+        onBack={() => setViewMode('landing')}
+        onCreate={(templateId) => runTask('新建 Graph 中', () => createNewGraph(templateId))}
       />
     );
   }
@@ -344,9 +362,39 @@ export function WorkflowPage({ remote, runTask }) {
   );
 }
 
-function WorkflowLanding({ templates, workflows, onCreate, onLoad }) {
+function WorkflowLanding({ onChooseLoad, onChooseNew }) {
   return (
-    <div className="workflow-entry-layout">
+    <div className="data-entry-grid">
+      <button className="data-entry-card large" onClick={onChooseLoad}>
+        <ListChecks size={42} />
+        <span>
+          <strong>加载已有 Graph</strong>
+          <small>打开已经保存的 graph，继续编辑、校验或执行。</small>
+        </span>
+      </button>
+      <button className="data-entry-card large" onClick={onChooseNew}>
+        <Plus size={42} />
+        <span>
+          <strong>新建 Graph</strong>
+          <small>从空白 graph 或模板开始，再自由添加节点和连线。</small>
+        </span>
+      </button>
+    </div>
+  );
+}
+
+function WorkflowLoadEntry({ workflows, onBack, onLoad }) {
+  return (
+    <div className="workflow-entry-page">
+      <div className="editor-header">
+        <Button icon={ArrowLeft} variant="secondary" onClick={onBack}>
+          返回
+        </Button>
+        <div>
+          <strong>加载已有 Graph</strong>
+          <span>选择一个已保存 graph 进入画布。</span>
+        </div>
+      </div>
       <Panel title="加载已有 Graph">
         {workflows.length ? (
           <div className="graph-entry-list">
@@ -361,20 +409,39 @@ function WorkflowLanding({ templates, workflows, onCreate, onLoad }) {
             ))}
           </div>
         ) : (
-          <EmptyState title="暂无 Graph" body="从右侧选择模板新建一个 graph。" />
+          <EmptyState title="暂无 Graph" body="返回后选择新建 Graph。" />
         )}
       </Panel>
+    </div>
+  );
+}
 
-      <Panel title="新建 Graph">
-        <div className="graph-template-grid">
-          {templates.map((template) => (
-            <button className="graph-template-card" key={template.id} onClick={() => onCreate(template.id)}>
-              <strong>{template.name}</strong>
-              <span>{template.description}</span>
-              <small>{template.node_types.join(' -> ')}</small>
-            </button>
-          ))}
+function WorkflowNewEntry({ templates, onBack, onCreate }) {
+  return (
+    <div className="workflow-entry-page">
+      <div className="editor-header">
+        <Button icon={ArrowLeft} variant="secondary" onClick={onBack}>
+          返回
+        </Button>
+        <div>
+          <strong>新建 Graph</strong>
+          <span>选择空白或一个 starter 模板。</span>
         </div>
+      </div>
+      <Panel title="新建 Graph">
+        {templates.length ? (
+          <div className="graph-template-grid">
+            {templates.map((template) => (
+              <button className="graph-template-card" key={template.id} onClick={() => onCreate(template.id)}>
+                <strong>{template.name}</strong>
+                <span>{template.description}</span>
+                <small>{template.node_types.join(' -> ')}</small>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <EmptyState title="模板加载中" body="请稍后刷新，或先检查后端服务。" />
+        )}
       </Panel>
     </div>
   );
