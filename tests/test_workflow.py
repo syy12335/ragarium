@@ -149,3 +149,17 @@ def test_evaluation_template_retrieve_inherits_or_overrides_query_generate_db():
             node["data"]["knowledgeBaseId"] = "42"
 
     assert engine.resolve_knowledge_base_id(graph) == 42
+
+
+def test_ragas_eval_requires_answer_node():
+    graph = configured_template_graph("evaluation", "21")
+    graph["nodes"] = [node for node in graph["nodes"] if node["type"] != "answer"]
+    graph["edges"] = [
+        edge
+        for edge in graph["edges"]
+        if edge["source"] != "answer" and edge["target"] != "answer"
+    ]
+    graph["edges"].append({"id": "prompt-ragas_eval", "source": "prompt", "target": "ragas_eval"})
+
+    with pytest.raises(WorkflowValidationError, match="Answer node"):
+        WorkflowEngine().validate_graph(graph)

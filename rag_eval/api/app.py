@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from rag_eval.app_config import AppConfigService
-from rag_eval.eval_engine import EvalEngine
+from rag_eval.eval_engine import EvalEngine, RagEvalRecord
 from rag_eval.ingestion import IngestionService
 from rag_eval.query_generation import QueryGenerationService
 from rag_eval.storage import ProductStore
@@ -664,16 +664,67 @@ def create_app(
             name=config["name"],
         )
 
-    def create_eval_run_from_query_set(
+    def normalize_context_texts(raw_contexts: Any) -> List[str]:
+        if raw_contexts is None:
+            return []
+        if not isinstance(raw_contexts, list):
+            raise ValueError("runner 返回的 contexts 字段必须是列表类型")
+        contexts: List[str] = []
+        for item in raw_contexts:
+            if isinstance(item, str):
+                contexts.append(item)
+                continue
+            if isinstance(item, dict):
+                if "content" in item:
+                    contexts.append(str(item["content"]))
+                    continue
+                if "page_content" in item:
+                    contexts.append(str(item["page_content"]))
+                    continue
+            page_content = getattr(item, "page_content", None)
+            if page_content is None:
+                raise ValueError("contexts 元素必须是 str、包含 content/page_content 的 dict，或包含 page_content 属性")
+            contexts.append(str(page_content))
+        return contexts
+
+    def evaluate_records_with_engine(records: List[RagEvalRecord]) -> Any:
+        evaluator = eval_engine_factory()
+        if hasattr(evaluator, "evaluate_records"):
+            return evaluator.evaluate_records(records)
+        if hasattr(evaluator, "evaluate"):
+            return evaluator.evaluate(records)
+
+        class AnswerRecordRunner:
+            def __init__(self, items: List[RagEvalRecord]) -> None:
+                self.records_by_question = {item.question: item for item in items}
+
+            def invoke(self, question: str) -> Dict[str, Any]:
+                record = self.records_by_question[question]
+                return {
+                    "question": record.question,
+                    "answer": record.answer,
+                    "contexts": record.contexts,
+                }
+
+        samples = [
+            {
+                "question": record.question,
+                **({"ground_truth": record.ground_truth} if record.ground_truth else {}),
+            }
+            for record in records
+        ]
+        return evaluator.invoke(AnswerRecordRunner(records), samples)
+
+    def generate_answer_records_for_query_set(
         *,
         query_set: Dict[str, Any],
         workflow: Dict[str, Any],
         limit: Optional[int],
     ) -> Dict[str, Any]:
-        workflow_engine.validate_executable_graph(workflow["graph"])
+        validation = workflow_engine.validate_executable_graph(workflow["graph"])
         types = {
             node.get("type")
-            for node in workflow_engine.validate_executable_graph(workflow["graph"]).ordered_nodes
+            for node in validation.ordered_nodes
         }
         if not {"retrieve", "prompt_llm", "answer"}.issubset(types):
             raise WorkflowValidationError("Eval run requires a graph with Retrieve, Prompt / LLM and Answer nodes")
@@ -681,24 +732,90 @@ def create_app(
         kb = store.get_knowledge_base(kb_id)
         if kb["index_status"] != "ready":
             raise ValueError("knowledge base index is not ready")
-        vector_manager = vector_builder_factory().manager
-        runner = WorkflowRunner(
-            workflow_engine=workflow_engine,
-            graph=workflow["graph"],
-            vector_manager=vector_manager,
-            collection_name=kb["collection_name"],
-            config_path=config_path,
-        )
-        samples = [{"question": query} for query in query_set["queries"]]
+
+        queries = list(query_set["queries"])
         if limit:
-            samples = samples[:limit]
-        result = eval_engine_factory().invoke(runner, samples)
+            queries = queries[:limit]
+
+        vector_manager = vector_builder_factory().manager
+        top_k = workflow_engine.get_top_k_from_validation(validation)
+        rag_records: List[RagEvalRecord] = []
+        answer_records: List[Dict[str, Any]] = []
+        for index, query in enumerate(queries):
+            result = workflow_engine.run_question(
+                workflow["graph"],
+                question=str(query),
+                vector_manager=vector_manager,
+                collection_name=kb["collection_name"],
+                config_path=config_path,
+                k=top_k,
+            )
+            contexts = normalize_context_texts(result.get("contexts") or [])
+            question = str(result.get("question") or query)
+            answer = str(result.get("answer") or result.get("generation") or "")
+            meta = {
+                "idx": index,
+                "mode": "workflow_answer",
+                "query_set_id": query_set["id"],
+                "workflow_id": workflow["id"],
+            }
+            rag_records.append(
+                RagEvalRecord(
+                    question=question,
+                    answer=answer,
+                    contexts=contexts,
+                    ground_truth=None,
+                    meta=meta,
+                )
+            )
+            answer_records.append(
+                {
+                    "question": question,
+                    "answer": answer,
+                    "contexts": contexts,
+                    "meta": meta,
+                }
+            )
+
+        return {
+            "records": rag_records,
+            "items": answer_records,
+            "count": len(answer_records),
+            "knowledge_base_id": kb_id,
+            "collection_name": kb["collection_name"],
+            "top_k": top_k,
+        }
+
+    def create_eval_run_from_answer_records(
+        *,
+        query_set: Dict[str, Any],
+        workflow: Dict[str, Any],
+        records: List[RagEvalRecord],
+    ) -> Dict[str, Any]:
+        result = evaluate_records_with_engine(records)
         return store.create_eval_run(
             query_set_id=query_set["id"],
             workflow_id=workflow["id"],
             status="completed",
             metrics=result.overall,
             output_csv=result.csv_path,
+        )
+
+    def create_eval_run_from_query_set(
+        *,
+        query_set: Dict[str, Any],
+        workflow: Dict[str, Any],
+        limit: Optional[int],
+    ) -> Dict[str, Any]:
+        answer_batch = generate_answer_records_for_query_set(
+            query_set=query_set,
+            workflow=workflow,
+            limit=limit,
+        )
+        return create_eval_run_from_answer_records(
+            query_set=query_set,
+            workflow=workflow,
+            records=answer_batch["records"],
         )
 
     def summarize_node_output(node_type: str, state: Dict[str, Any]) -> Dict[str, Any]:
@@ -716,6 +833,12 @@ def create_app(
                 "query_count": len(query_set.get("queries") or []),
             }
         if node_type == "answer":
+            if state.get("answer_records") is not None:
+                return {
+                    "answer_count": state.get("answer_count", 0),
+                    "query_set_id": (state.get("query_set") or {}).get("id"),
+                    "context_count": sum(len(item.get("contexts") or []) for item in state.get("answer_records") or []),
+                }
             return {
                 "question": state.get("question"),
                 "answer": state.get("answer"),
@@ -726,6 +849,7 @@ def create_app(
             return {
                 "eval_run_id": eval_run.get("id"),
                 "status": eval_run.get("status"),
+                "metrics": eval_run.get("metrics"),
             }
         return {"ok": True}
 
@@ -737,6 +861,7 @@ def create_app(
             "query_set",
             "question",
             "answer",
+            "answer_count",
             "contexts",
             "eval_run",
         ]:
@@ -842,7 +967,19 @@ def create_app(
                 state["prompt"] = data.get("prompt") or ""
             elif node_type == "answer":
                 if state.get("queries"):
-                    state["answer_mode"] = "batch_for_eval"
+                    query_set = state.get("query_set")
+                    if not query_set:
+                        raise WorkflowValidationError("Answer node requires upstream Query Generate for batch answers")
+                    answer_batch = generate_answer_records_for_query_set(
+                        query_set=query_set,
+                        workflow=workflow,
+                        limit=None,
+                    )
+                    state["answer_records"] = answer_batch["items"]
+                    state["_rag_eval_records"] = answer_batch["records"]
+                    state["answer_count"] = answer_batch["count"]
+                    state["collection_name"] = answer_batch["collection_name"]
+                    state["top_k"] = answer_batch["top_k"]
                 else:
                     question = state.get("question")
                     if not question:
@@ -865,11 +1002,15 @@ def create_app(
                 query_set = state.get("query_set")
                 if not query_set:
                     raise WorkflowValidationError("RAGAS Eval node requires upstream Query Generate")
+                records = state.get("_rag_eval_records") or []
+                if not records:
+                    raise WorkflowValidationError("RAGAS Eval node requires upstream Answer records")
                 eval_config = workflow_engine.get_eval_config_from_validation(validation)
-                eval_run = create_eval_run_from_query_set(
+                eval_records = records[: eval_config["limit"]] if eval_config["limit"] else records
+                eval_run = create_eval_run_from_answer_records(
                     query_set=query_set,
                     workflow=workflow,
-                    limit=eval_config["limit"],
+                    records=eval_records,
                 )
                 state["eval_run"] = eval_run
             elif node_type == "end":
@@ -1058,6 +1199,7 @@ def create_app(
                 return {
                     "workflow_id": workflow_id,
                     "query_set": result["outputs"].get("query_set"),
+                    "answer_count": result["outputs"].get("answer_count"),
                     "eval_run": result["outputs"].get("eval_run"),
                     "trace": result["trace"],
                     "metadata": result["metadata"],

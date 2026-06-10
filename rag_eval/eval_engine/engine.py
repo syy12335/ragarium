@@ -157,3 +157,21 @@ class EvalEngine:
         result: EvalResult = evaluator.evaluate(records)
 
         return result
+
+    def evaluate_records(self, records: List[RagEvalRecord]) -> EvalResult:
+        """
+        直接评测已经由上游 Answer 节点生成好的 RAG records。
+
+        这个入口用于产品化 workflow：Answer 节点负责生成 question / answer /
+        contexts，RAGAS Eval 节点只负责消费这些 records 打分，避免评测节点内部
+        隐式再跑一遍 RAG。
+        """
+        if not records:
+            raise ValueError("records 为空，无法执行评估。")
+
+        evaluator = RagasEvaluator(
+            config_path=self.config_path,
+            metrics=self.metrics,
+            metric_preset=self.metric_preset,
+        )
+        return evaluator.evaluate(records)

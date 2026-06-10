@@ -274,7 +274,11 @@ def test_api_import_index_generate_and_eval(tmp_path):
     assert workflow_eval_response.status_code == 200
     workflow_eval = workflow_eval_response.json()
     assert workflow_eval["query_set"]["target_count"] == 3
+    assert workflow_eval["answer_count"] == 3
     assert workflow_eval["eval_run"]["status"] == "completed"
+    answer_trace = next(item for item in workflow_eval["trace"] if item["type"] == "answer")
+    assert answer_trace["output"]["answer_count"] == 3
+    assert answer_trace["output"]["context_count"] == 3
 
     runtime_workflows_after_templates = client.get("/api/runtime/workflows").json()["output"]["workflows"]
     runtime_ids = {item["workflow_id"] for item in runtime_workflows_after_templates}

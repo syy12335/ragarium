@@ -687,6 +687,8 @@ class WorkflowEngine:
         if "query_generate" in validation.nodes_by_type:
             self.get_query_generate_config_from_validation(validation)
         if "ragas_eval" in validation.nodes_by_type:
+            if "answer" not in validation.nodes_by_type:
+                raise WorkflowValidationError("RAGAS Eval node requires an upstream Answer node")
             self.get_eval_config_from_validation(validation)
 
     def get_start_fields_from_validation(self, validation: WorkflowValidationResult) -> List[Dict[str, Any]]:
