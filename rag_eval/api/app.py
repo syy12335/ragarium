@@ -548,6 +548,29 @@ def create_app(
         except Exception as exc:
             raise _http_error(exc)
 
+    def update_kb_status_after_ingestion_failure(knowledge_base_id: int, error: str) -> None:
+        sources = store.list_sources(knowledge_base_id)
+        chunks = store.list_chunks(knowledge_base_id)
+        if chunks:
+            store.update_knowledge_base_index_status(
+                knowledge_base_id,
+                status="stale",
+                error=None,
+            )
+            return
+        if sources:
+            store.update_knowledge_base_index_status(
+                knowledge_base_id,
+                status="failed",
+                error=error,
+            )
+            return
+        store.update_knowledge_base_index_status(
+            knowledge_base_id,
+            status="not_indexed",
+            error=None,
+        )
+
     @app.post("/api/knowledge-bases/{knowledge_base_id}/files")
     async def upload_file(
         knowledge_base_id: int,
@@ -574,6 +597,10 @@ def create_app(
             )
             return source
         except Exception as exc:
+            try:
+                update_kb_status_after_ingestion_failure(knowledge_base_id, str(exc))
+            except Exception:
+                pass
             raise _http_error(exc)
 
     @app.post("/api/knowledge-bases/{knowledge_base_id}/urls")
@@ -595,6 +622,10 @@ def create_app(
             )
             return source
         except Exception as exc:
+            try:
+                update_kb_status_after_ingestion_failure(knowledge_base_id, str(exc))
+            except Exception:
+                pass
             raise _http_error(exc)
 
     @app.delete("/api/knowledge-bases/{knowledge_base_id}/sources/{source_id}")

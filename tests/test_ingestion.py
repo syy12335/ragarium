@@ -53,6 +53,43 @@ def test_parse_url_with_mocked_response(monkeypatch):
     assert "RAG docs" in parsed.content
 
 
+def test_google_search_url_fetches_original_html(monkeypatch):
+    class FakeResponse:
+        headers = {"content-type": "text/html; charset=utf-8"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return (
+                b"<html><title>Google Search</title><body>"
+                b"<main><h1>Google Search</h1><p>If you're having trouble accessing Google Search, "
+                b"please click here, or send feedback.</p></main>"
+                b"</body></html>"
+            )
+
+    seen = {}
+
+    def fake_urlopen(request, timeout=20):
+        seen["url"] = request.full_url
+        return FakeResponse()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    parsed = parse_url("https://www.google.com/search?q=rag%20eval")
+
+    assert seen["url"] == "https://www.google.com/search?q=rag%20eval"
+    assert "duckduckgo" not in seen["url"]
+    assert parsed.metadata["url"] == "https://www.google.com/search?q=rag%20eval"
+    assert parsed.metadata["extension"] == ".html"
+    assert parsed.metadata["title"] == "Google Search"
+    assert "Google Search" in parsed.content
+    assert "search_query" not in parsed.metadata
+
+
 def test_ingestion_service_persists_chunks(tmp_path):
     store = ProductStore(tmp_path / "state.sqlite")
     kb = store.create_knowledge_base("Docs")
@@ -80,6 +117,49 @@ def test_ingestion_service_accepts_per_source_chunk_options(tmp_path):
     chunks = store.list_chunks(kb["id"])
     assert len(chunks) >= 6
     assert len(chunks[0]["content"]) <= 30
+
+
+def test_ingestion_service_rejects_url_without_text_chunks(tmp_path, monkeypatch):
+    store = ProductStore(tmp_path / "state.sqlite")
+    kb = store.create_knowledge_base("Docs")
+
+    monkeypatch.setattr(
+        "rag_eval.ingestion.service.parse_url",
+        lambda url: ParsedDocument(content="", metadata={"source": url, "url": url}),
+    )
+
+    service = IngestionService(store, tmp_path / "uploads", chunk_size=100, chunk_overlap=0)
+
+    with pytest.raises(ValueError, match="未解析到可切分文本"):
+        service.ingest_url(kb["id"], "https://example.com/app")
+
+    sources = store.list_sources(kb["id"])
+    assert sources[0]["status"] == "failed"
+    assert "未解析到可切分文本" in sources[0]["error"]
+    assert store.list_chunks(kb["id"]) == []
+
+
+def test_ingestion_service_rejects_js_redirect_shell(tmp_path, monkeypatch):
+    store = ProductStore(tmp_path / "state.sqlite")
+    kb = store.create_knowledge_base("Docs")
+
+    monkeypatch.setattr(
+        "rag_eval.ingestion.service.parse_url",
+        lambda url: ParsedDocument(
+            content="如果您在几秒钟内没有被重定向，请点击此处。",
+            metadata={"source": url, "url": url, "extension": ".html"},
+        ),
+    )
+
+    service = IngestionService(store, tmp_path / "uploads", chunk_size=100, chunk_overlap=0)
+
+    with pytest.raises(ValueError, match="浏览器渲染或登录态"):
+        service.ingest_url(kb["id"], "https://example.com/app")
+
+    sources = store.list_sources(kb["id"])
+    assert sources[0]["status"] == "failed"
+    assert "浏览器渲染或登录态" in sources[0]["error"]
+    assert store.list_chunks(kb["id"]) == []
 
 
 def test_ingestion_service_reprocesses_existing_sources(tmp_path):

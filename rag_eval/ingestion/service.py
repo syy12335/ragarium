@@ -10,6 +10,26 @@ from rag_eval.storage import ProductStore
 from .chunking import chunk_document
 from .loaders import ParsedDocument, parse_file, parse_url
 
+UNREADABLE_SOURCE_ERROR = "未解析到可切分文本；该页面可能需要浏览器渲染或登录态，当前静态抓取无法解析正文"
+BLOCKED_PAGE_MARKERS = (
+    "trouble accessing google search",
+    "enablejs",
+    "enable javascript",
+    "javascript is disabled",
+    "requires javascript",
+    "需要启用 javascript",
+    "login required",
+    "please log in",
+)
+SHORT_SHELL_MARKERS = (
+    *BLOCKED_PAGE_MARKERS,
+    "没有被重定向",
+    "请点击此处",
+    "please click here",
+    "send feedback",
+)
+SHELL_TEXT_MAX_LENGTH = 180
+
 
 class IngestionService:
     def __init__(
@@ -64,12 +84,14 @@ class IngestionService:
                 chunk_size=self._resolve_chunk_size(chunk_size),
                 chunk_overlap=self._resolve_chunk_overlap(chunk_overlap),
             )
+            self._ensure_parseable_text(parsed, chunks)
             self.store.replace_source_chunks(knowledge_base_id, source["id"], chunks)
             self.store.update_source_status(source["id"], status="ready", stored_path=str(stored_path))
             source = self.store.get_source(source["id"])
             source["chunk_count"] = len(chunks)
             return source
         except Exception as exc:
+            self.store.replace_source_chunks(knowledge_base_id, source["id"], [])
             self.store.update_source_status(source["id"], status="failed", error=str(exc))
             raise
 
@@ -114,12 +136,14 @@ class IngestionService:
                 chunk_size=self._resolve_chunk_size(chunk_size),
                 chunk_overlap=self._resolve_chunk_overlap(chunk_overlap),
             )
+            self._ensure_parseable_text(parsed, chunks)
             self.store.replace_source_chunks(knowledge_base_id, source["id"], chunks)
             self.store.update_source_status(source["id"], status="ready")
             source = self.store.get_source(source["id"])
             source["chunk_count"] = len(chunks)
             return source
         except Exception as exc:
+            self.store.replace_source_chunks(knowledge_base_id, source["id"], [])
             self.store.update_source_status(source["id"], status="failed", error=str(exc))
             raise
 
@@ -147,6 +171,7 @@ class IngestionService:
                     chunk_size=resolved_chunk_size,
                     chunk_overlap=resolved_chunk_overlap,
                 )
+                self._ensure_parseable_text(parsed, chunks)
                 self.store.replace_source_chunks(
                     knowledge_base_id,
                     int(source["id"]),
@@ -159,6 +184,11 @@ class IngestionService:
             except Exception as exc:
                 message = f"{source.get('name')}: {exc}"
                 errors.append(message)
+                self.store.replace_source_chunks(
+                    knowledge_base_id,
+                    int(source["id"]),
+                    [],
+                )
                 self.store.update_source_status(
                     source["id"],
                     status="failed",
@@ -189,6 +219,17 @@ class IngestionService:
                 raise ValueError("url source is missing uri")
             return parse_url(uri)
         raise ValueError(f"unsupported source type: {source_type}")
+
+    @staticmethod
+    def _ensure_parseable_text(parsed: ParsedDocument, chunks: List[Dict[str, Any]]) -> None:
+        if not chunks:
+            raise ValueError(UNREADABLE_SOURCE_ERROR)
+        text = " ".join((parsed.content or "").split())
+        normalized = text.lower()
+        if any(marker in normalized for marker in BLOCKED_PAGE_MARKERS):
+            raise ValueError(UNREADABLE_SOURCE_ERROR)
+        if len(text) <= SHELL_TEXT_MAX_LENGTH and any(marker in normalized for marker in SHORT_SHELL_MARKERS):
+            raise ValueError(UNREADABLE_SOURCE_ERROR)
 
     def _default_chunk_config(self) -> Dict[str, int]:
         if self.config_service is None:

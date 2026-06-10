@@ -9,6 +9,15 @@ from typing import Any, Dict, Optional
 
 
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".html", ".htm", ".pdf", ".docx"}
+URL_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/125.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+}
 
 
 @dataclass
@@ -154,9 +163,7 @@ def parse_file(path: str | Path, original_name: Optional[str] = None) -> ParsedD
 def parse_url(url: str, timeout: int = 20) -> ParsedDocument:
     request = urllib.request.Request(
         url,
-        headers={
-            "User-Agent": "rag-eval-scaffold/1.0",
-        },
+        headers=URL_HEADERS,
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         raw = response.read()

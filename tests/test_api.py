@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from fastapi.testclient import TestClient
 
 from rag_eval.api import create_app
+from rag_eval.ingestion.loaders import ParsedDocument
 from rag_eval.query_generation import QueryGenerationService
 from rag_eval.storage import ProductStore
 from rag_eval.workflow import DEFAULT_WORKFLOW_GRAPH, WorkflowEngine, get_default_workflow_graph
@@ -94,6 +95,33 @@ def test_api_delete_source_removes_chunks_and_updates_kb_status(tmp_path):
     assert store.list_sources(kb["id"]) == []
     assert store.list_chunks(kb["id"]) == []
     assert store.get_knowledge_base(kb["id"])["index_status"] == "not_indexed"
+
+
+def test_api_failed_url_import_updates_source_and_kb_status(tmp_path, monkeypatch):
+    store = ProductStore(tmp_path / "state.sqlite")
+    client = TestClient(create_app(store=store))
+    kb = client.post("/api/knowledge-bases", json={"name": "Docs"}).json()
+
+    monkeypatch.setattr(
+        "rag_eval.ingestion.service.parse_url",
+        lambda url: ParsedDocument(
+            content="如果您在几秒钟内没有被重定向，请点击此处。",
+            metadata={"source": url, "url": url, "extension": ".html"},
+        ),
+    )
+
+    response = client.post(
+        f"/api/knowledge-bases/{kb['id']}/urls",
+        json={"url": "https://example.com/app"},
+    )
+
+    assert response.status_code == 400
+    assert "浏览器渲染或登录态" in response.json()["detail"]
+    detail = client.get(f"/api/knowledge-bases/{kb['id']}").json()
+    assert detail["index_status"] == "failed"
+    assert "浏览器渲染或登录态" in detail["index_error"]
+    assert detail["chunks"] == []
+    assert detail["sources"][0]["status"] == "failed"
 
 
 def test_api_import_index_generate_and_eval(tmp_path):
