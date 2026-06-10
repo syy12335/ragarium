@@ -957,30 +957,11 @@ select:focus {
   min-height: 28px;
 }
 
-.source-choice {
+.unified-source-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.source-choice button {
-  min-height: 42px;
-  border: 0;
-  background: #ffffff;
-  color: #425164;
-  cursor: pointer;
-  font-weight: 800;
-}
-
-.source-choice button + button {
-  border-left: 1px solid #cbd5e1;
-}
-
-.source-choice button.active {
-  background: #2563a6;
-  color: #ffffff;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(260px, 1.2fr);
+  gap: 10px;
+  align-items: center;
 }
 
 .source-add-row {
@@ -1700,6 +1681,7 @@ pre {
   .runtime-compact-card,
   .endpoint-list,
   .graph-io-grid,
+  .unified-source-grid,
   .db-summary,
   .compact-overview,
   .deploy-summary,

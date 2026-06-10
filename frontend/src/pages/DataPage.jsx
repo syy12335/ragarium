@@ -16,10 +16,9 @@ import { Button, EmptyState, Field, HelpDot, IconButton, Panel, StatusPill } fro
 const supportedText = '支持 .txt、.md、.html、.pdf、.docx 文件和普通静态单页 URL；动态页面或登录页需要后续开启浏览器渲染解析。同一批来源会一起切割并保存到当前知识库 DB。';
 const defaultExamples = '如何配置这个产品？\n上传文档后怎么检索？\n评测结果怎么看？';
 
-function newSourceRow(type = 'file') {
+function newSourceRow() {
   return {
     id: `${Date.now()}-${Math.random()}`,
-    type,
     file: null,
     url: '',
   };
@@ -29,7 +28,7 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
   const [viewMode, setViewMode] = useState('landing');
   const [selectedDbId, setSelectedDbId] = useState('');
   const [detail, setDetail] = useState(null);
-  const [rows, setRows] = useState([newSourceRow('file')]);
+  const [rows, setRows] = useState([newSourceRow()]);
   const [chunk, setChunk] = useState({ chunk_size: 900, chunk_overlap: 120 });
   const [queryDbId, setQueryDbId] = useState('');
   const [queryExamples, setQueryExamples] = useState(defaultExamples);
@@ -134,22 +133,23 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
     if (!selectedDbId) {
       throw new Error('请先选择或创建 DB');
     }
-    const readyRows = rows.filter((row) => (row.type === 'file' ? row.file : row.url.trim()));
+    const readyRows = rows.filter((row) => row.file || row.url.trim());
     if (!readyRows.length) {
-      throw new Error('请至少添加一个 File 或 URL');
+      throw new Error('请至少选择一个文件或粘贴一个 URL');
     }
     const options = {
       chunk_size: Number(chunk.chunk_size),
       chunk_overlap: Number(chunk.chunk_overlap),
     };
     for (const row of readyRows) {
-      if (row.type === 'file') {
+      if (row.file) {
         await api.uploadFile(selectedDbId, row.file, options);
-      } else {
+      }
+      if (row.url.trim()) {
         await api.importUrl(selectedDbId, row.url.trim(), options);
       }
     }
-    setRows([newSourceRow('file')]);
+    setRows([newSourceRow()]);
     await refreshDetail();
   }
 
@@ -303,28 +303,9 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
                       <IconButton label="移除来源" icon={Trash2} onClick={() => removeRow(row.id)} />
                     </div>
                   ) : null}
-                  <div className="source-choice">
-                    <button
-                      type="button"
-                      className={row.type === 'file' ? 'active' : ''}
-                      onClick={() => updateRow(row.id, { type: 'file', url: '' })}
-                    >
-                      上传文件
-                    </button>
-                    <button
-                      type="button"
-                      className={row.type === 'url' ? 'active' : ''}
-                      onClick={() => updateRow(row.id, { type: 'url', file: null })}
-                    >
-                      粘贴 URL
-                    </button>
-                  </div>
-                  {row.type === 'file' ? (
-                    <Field label="选择文件" help="选择一个本地文档，系统会解析正文、切成 chunks 并保存到当前知识库。">
+                  <Field label="文件或 URL" help="选择本地文件，或粘贴一个网页 URL；填一个就可以导入。">
+                    <div className="unified-source-grid">
                       <input type="file" onChange={(event) => updateRow(row.id, { file: event.target.files?.[0] || null })} />
-                    </Field>
-                  ) : (
-                    <Field label="粘贴网页 URL" help="导入单页静态网页正文；动态页面或登录页无法直接解析时会标记失败。">
                       <div className="input-with-icon">
                         <Link2 size={16} />
                         <input
@@ -333,18 +314,15 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
                           placeholder="https://example.com/doc"
                         />
                       </div>
-                    </Field>
-                  )}
+                    </div>
+                  </Field>
                 </div>
               ))}
             </div>
 
             <div className="source-add-row">
-              <Button icon={Plus} variant="secondary" onClick={() => setRows((current) => [...current, newSourceRow('file')])}>
-                添加文件
-              </Button>
-              <Button icon={Plus} variant="secondary" onClick={() => setRows((current) => [...current, newSourceRow('url')])}>
-                添加 URL
+              <Button icon={Plus} variant="secondary" onClick={() => setRows((current) => [...current, newSourceRow()])}>
+                添加来源
               </Button>
             </div>
 
@@ -372,7 +350,7 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
 
             <Button
               icon={Upload}
-              disabled={!selectedDbId || rows.every((row) => (row.type === 'file' ? !row.file : !row.url.trim()))}
+              disabled={!selectedDbId || rows.every((row) => !row.file && !row.url.trim())}
               onClick={() => runTask('导入来源中', importSources)}
             >
               开始导入
