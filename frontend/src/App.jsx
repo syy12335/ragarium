@@ -160,7 +160,7 @@ export default function App() {
         {activeTab === 'home' ? <HomePage remote={remote} onNavigate={navigate} runTask={runTask} /> : null}
         {activeTab === 'data' ? <DataPage remote={remote} runTask={runTask} initialSection={dataIntent.section} navigationKey={dataIntent.key} /> : null}
         {activeTab === 'workflow' ? <WorkflowPage remote={remote} runTask={runTask} /> : null}
-        {activeTab === 'evaluation' ? <EvaluationPage remote={remote} runTask={runTask} /> : null}
+        {activeTab === 'evaluation' ? <EvaluationPage remote={remote} runTask={runTask} onNavigate={navigate} /> : null}
         {activeTab === 'config' ? <ConfigPage runTask={runTask} /> : null}
       </main>
     </div>

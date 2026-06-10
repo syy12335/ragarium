@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Play } from 'lucide-react';
+import { Play, WandSparkles } from 'lucide-react';
 import { api } from '../api.js';
 import { Button, EmptyState, Field, Panel, StatusPill } from '../components/ui.jsx';
 
-export function EvaluationPage({ remote, runTask }) {
+export function EvaluationPage({ remote, runTask, onNavigate }) {
   const [querySetId, setQuerySetId] = useState('');
   const [workflowId, setWorkflowId] = useState('');
   const [limit, setLimit] = useState('');
@@ -31,7 +31,14 @@ export function EvaluationPage({ remote, runTask }) {
 
   return (
     <div className="two-column">
-      <Panel title="无参考答案评测">
+      <Panel
+        title="无参考答案评测"
+        actions={(
+          <Button icon={WandSparkles} variant="secondary" onClick={() => onNavigate('queries')}>
+            去评测集
+          </Button>
+        )}
+      >
         <Field label="Query 集" help="选择要评测的问题列表；系统会逐条运行 Workflow 生成答案，再交给 RAGAS 评分。">
           <select value={querySetId} onChange={(event) => setQuerySetId(event.target.value)}>
             <option value="">选择 Query 集</option>
@@ -46,6 +53,11 @@ export function EvaluationPage({ remote, runTask }) {
           <div className="hint-box">
             <strong>{querySet.queries.length} 个 queries</strong>
             <span>来自 {dbName(querySet.knowledge_base_id)}</span>
+          </div>
+        ) : !remote.querySets.length ? (
+          <div className="hint-box">
+            <strong>还没有评测集</strong>
+            <span>点击右上角“去评测集”，在数据页用示例 Query 生成一批问题后再回来评测。</span>
           </div>
         ) : null}
         <Field label="Workflow" help="选择用于回答 Query 的 RAG Graph；评测指标会基于它生成的 answer 和 contexts。">
