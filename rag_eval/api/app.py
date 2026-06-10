@@ -446,6 +446,58 @@ def create_app(
             if workflow_engine.is_runtime_graph(workflow["graph"]):
                 workflows.append(runtime_workflow_item(workflow))
 
+        workflow_contracts = []
+        for workflow in workflows:
+            workflow_id = workflow["workflow_id"]
+            workflow_contracts.append(
+                {
+                    **workflow,
+                    "invoke": {
+                        "method": "POST",
+                        "url": f"{base_url}/api/runtime/workflows/{workflow_id}/invoke",
+                        "request": {"question": "如何导入文档？"},
+                        "response": {
+                            "ok": True,
+                            "output": {
+                                "question": "如何导入文档？",
+                                "answer": "string",
+                                "contexts": ["string"],
+                            },
+                            "metadata": {
+                                "workflow_id": workflow_id,
+                                "knowledge_base_id": workflow.get("knowledge_base_id"),
+                                "collection_name": workflow.get("collection_name"),
+                                "top_k": workflow.get("top_k"),
+                                "context_count": "number",
+                            },
+                        },
+                        "curl": (
+                            f"curl -X POST {base_url}/api/runtime/workflows/{workflow_id}/invoke "
+                            "-H 'Content-Type: application/json' "
+                            "-d '{\"question\":\"如何导入文档？\"}'"
+                        ),
+                    },
+                    "batch": {
+                        "method": "POST",
+                        "url": f"{base_url}/api/runtime/workflows/{workflow_id}/batch",
+                        "request": {"questions": ["如何导入文档？", "如何运行评测？"]},
+                        "response": {
+                            "ok": True,
+                            "output": {"items": ["Runtime response item"]},
+                            "metadata": {
+                                "workflow_id": workflow_id,
+                                "count": "number",
+                            },
+                        },
+                        "curl": (
+                            f"curl -X POST {base_url}/api/runtime/workflows/{workflow_id}/batch "
+                            "-H 'Content-Type: application/json' "
+                            "-d '{\"questions\":[\"如何导入文档？\",\"如何运行评测？\"]}'"
+                        ),
+                    },
+                }
+            )
+
         ready_count = sum(1 for workflow in workflows if workflow.get("can_run"))
         return _runtime_success(
             {
@@ -458,6 +510,25 @@ def create_app(
                     "workflows": "GET /api/runtime/workflows",
                     "invoke": "POST /api/runtime/workflows/{workflow_id}/invoke",
                     "batch": "POST /api/runtime/workflows/{workflow_id}/batch",
+                },
+                "graph_contract": {
+                    "input": {"question": "string"},
+                    "batch_input": {"questions": ["string"]},
+                    "output": {
+                        "ok": True,
+                        "output": {
+                            "question": "string",
+                            "answer": "string",
+                            "contexts": ["string"],
+                        },
+                        "metadata": {
+                            "workflow_id": "number",
+                            "knowledge_base_id": "number",
+                            "collection_name": "string",
+                            "top_k": "number",
+                            "context_count": "number",
+                        },
+                    },
                 },
                 "examples": {
                     "list_workflows": f"curl -s {base_url}/api/runtime/workflows",
@@ -472,7 +543,7 @@ def create_app(
                         "-d '{\"questions\":[\"如何导入文档？\",\"如何运行评测？\"]}'"
                     ),
                 },
-                "workflows": workflows,
+                "workflows": workflow_contracts,
             },
             {
                 "service": "rag-eval-runtime",

@@ -192,9 +192,12 @@ def test_api_import_index_generate_and_eval(tmp_path):
     assert deployment["ok"] is True
     assert deployment["output"]["status"] == "running"
     assert deployment["output"]["contract_version"] == "v1"
+    assert deployment["output"]["graph_contract"]["input"] == {"question": "string"}
     assert deployment["output"]["examples"]["invoke"].startswith("curl -X POST")
     assert deployment["metadata"]["ready_workflow_count"] >= 1
     assert deployment["output"]["workflows"][0]["workflow_id"] == workflow_id
+    assert deployment["output"]["workflows"][0]["invoke"]["request"] == {"question": "如何导入文档？"}
+    assert f"/api/runtime/workflows/{workflow_id}/invoke" in deployment["output"]["workflows"][0]["invoke"]["url"]
 
     runtime_invoke_response = client.post(
         f"/api/runtime/workflows/{workflow_id}/invoke",

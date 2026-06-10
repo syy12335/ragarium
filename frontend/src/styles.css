@@ -523,6 +523,33 @@ select:focus {
   margin-top: 14px;
 }
 
+.graph-contract-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+}
+
+.graph-io-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.graph-io-grid > div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.graph-io-grid span {
+  color: #637286;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .runtime-workflow-row {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -1485,6 +1512,7 @@ pre {
   .deploy-summary,
   .data-entry-grid,
   .endpoint-list,
+  .graph-io-grid,
   .provider-grid,
   .template-grid,
   .graph-template-grid,
@@ -1517,6 +1545,7 @@ pre {
   .runtime-card,
   .runtime-compact-card,
   .endpoint-list,
+  .graph-io-grid,
   .db-summary,
   .compact-overview,
   .deploy-summary,

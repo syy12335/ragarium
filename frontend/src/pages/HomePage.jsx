@@ -41,6 +41,30 @@ const workflowSteps = [
   },
 ];
 
+const fallbackGraphContract = {
+  input: { question: '如何导入文档？' },
+  batch_input: { questions: ['如何导入文档？', '如何运行评测？'] },
+  output: {
+    ok: true,
+    output: {
+      question: '如何导入文档？',
+      answer: '模型生成的答案',
+      contexts: ['检索命中的上下文片段'],
+    },
+    metadata: {
+      workflow_id: 1,
+      knowledge_base_id: 1,
+      collection_name: 'kb_1_docs',
+      top_k: 3,
+      context_count: 1,
+    },
+  },
+};
+
+function formatJson(value) {
+  return JSON.stringify(value, null, 2);
+}
+
 export function HomePage({ remote, onNavigate, runTask }) {
   const [view, setView] = useState('landing');
   const [capabilities, setCapabilities] = useState(null);
@@ -84,6 +108,7 @@ export function HomePage({ remote, onNavigate, runTask }) {
     const output = deployment?.output;
     const metadata = deployment?.metadata || {};
     const examples = output?.examples || {};
+    const graphContract = output?.graph_contract || fallbackGraphContract;
     const baseUrl = output?.base_url || API_BASE;
     const deployedWorkflows = output?.workflows || callableWorkflows;
 
@@ -133,8 +158,8 @@ export function HomePage({ remote, onNavigate, runTask }) {
           {deployment ? (
             <Panel title="怎么用 API 调用">
               <div className="api-callout">
-                <strong>调用顺序</strong>
-                <span>先查询可调用 Workflow，拿到 workflow_id 后，再调用 invoke 或 batch。</span>
+                <strong>调用顺序：先拿 Graph，再传输入，再读输出</strong>
+                <span>先查询可调用 Workflow，选择某个 workflow_id，然后把 question 传给这个 Graph 的 invoke 或 batch endpoint。</span>
               </div>
 
               <div className="api-example-grid">
@@ -142,32 +167,69 @@ export function HomePage({ remote, onNavigate, runTask }) {
                   <strong>1. 查看可调用 Workflow</strong>
                   <pre><code>{examples.list_workflows || `curl -s ${baseUrl}/api/runtime/workflows`}</code></pre>
                 </div>
-                <div>
-                  <strong>2. 单条问答</strong>
-                  <pre><code>{examples.invoke || `curl -X POST ${baseUrl}/api/runtime/workflows/1/invoke -H 'Content-Type: application/json' -d '{"question":"如何导入文档？"}'`}</code></pre>
-                </div>
-                <div>
-                  <strong>3. 批量问答</strong>
-                  <pre><code>{examples.batch || `curl -X POST ${baseUrl}/api/runtime/workflows/1/batch -H 'Content-Type: application/json' -d '{"questions":["如何导入文档？","如何运行评测？"]}'`}</code></pre>
-                </div>
               </div>
 
               <div className="runtime-workflow-list">
-                <strong>当前 Runtime Graph</strong>
+                <strong>2. 调用某个 Graph</strong>
                 {deployedWorkflows.length ? (
                   deployedWorkflows.map((workflow) => (
-                    <div className="runtime-workflow-row" key={workflow.workflow_id || workflow.id}>
-                      <div>
-                        <strong>{workflow.name}</strong>
-                        <span>workflow_id: {workflow.workflow_id || workflow.id}</span>
+                    <div className="graph-contract-card" key={workflow.workflow_id || workflow.id}>
+                      <div className="runtime-workflow-row">
+                        <div>
+                          <strong>{workflow.name}</strong>
+                          <span>
+                            workflow_id: {workflow.workflow_id || workflow.id}
+                            {workflow.knowledge_base_name ? ` · DB: ${workflow.knowledge_base_name}` : ''}
+                          </span>
+                        </div>
+                        <StatusPill status={workflow.can_run ? 'ready' : workflow.index_status || 'not_indexed'} />
                       </div>
-                      <StatusPill status={workflow.can_run ? 'ready' : workflow.index_status || 'not_indexed'} />
+
+                      <div className="graph-io-grid">
+                        <div>
+                          <strong>单条输入</strong>
+                          <span>{workflow.invoke?.method || 'POST'} {workflow.invoke?.url || `${baseUrl}/api/runtime/workflows/${workflow.workflow_id || '{workflow_id}'}/invoke`}</span>
+                          <pre><code>{formatJson(workflow.invoke?.request || graphContract.input)}</code></pre>
+                        </div>
+                        <div>
+                          <strong>单条输出</strong>
+                          <span>answer 是最终答案，contexts 是本次 RAG 检索到的上下文。</span>
+                          <pre><code>{formatJson(workflow.invoke?.response || graphContract.output)}</code></pre>
+                        </div>
+                        <div>
+                          <strong>单条 curl</strong>
+                          <pre><code>{workflow.invoke?.curl || examples.invoke || `curl -X POST ${baseUrl}/api/runtime/workflows/${workflow.workflow_id || 1}/invoke -H 'Content-Type: application/json' -d '{"question":"如何导入文档？"}'`}</code></pre>
+                        </div>
+                        <div>
+                          <strong>批量 curl</strong>
+                          <pre><code>{workflow.batch?.curl || examples.batch || `curl -X POST ${baseUrl}/api/runtime/workflows/${workflow.workflow_id || 1}/batch -H 'Content-Type: application/json' -d '{"questions":["如何导入文档？","如何运行评测？"]}'`}</code></pre>
+                        </div>
+                      </div>
                     </div>
                   ))
                 ) : (
-                  <div className="hint-box">
-                    <strong>暂无可调用 Workflow</strong>
-                    <span>需要先准备一个已索引 DB，并保存可从 question 执行到 Answer 的 RAG Graph。</span>
+                  <div className="graph-contract-card">
+                    <div className="hint-box">
+                      <strong>暂无可调用 Graph</strong>
+                      <span>需要先准备一个已索引 DB，并保存可从 question 执行到 Answer 的 RAG Graph。下面是固定调用格式，等有 workflow_id 后替换即可。</span>
+                    </div>
+                    <div className="graph-io-grid">
+                      <div>
+                        <strong>单条输入</strong>
+                        <span>POST {baseUrl}/api/runtime/workflows/{'{workflow_id}'}/invoke</span>
+                        <pre><code>{formatJson(graphContract.input)}</code></pre>
+                      </div>
+                      <div>
+                        <strong>单条输出</strong>
+                        <span>所有语言都按这个 JSON 结构读取结果。</span>
+                        <pre><code>{formatJson(graphContract.output)}</code></pre>
+                      </div>
+                      <div>
+                        <strong>批量输入</strong>
+                        <span>POST {baseUrl}/api/runtime/workflows/{'{workflow_id}'}/batch</span>
+                        <pre><code>{formatJson(graphContract.batch_input)}</code></pre>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
