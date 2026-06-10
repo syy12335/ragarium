@@ -289,6 +289,82 @@ select:focus {
   grid-column: 1 / -1;
 }
 
+.workflow-steps {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.workflow-steps button {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 0.35fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fbfdff;
+  color: #263445;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workflow-steps button:hover {
+  border-color: #2563a6;
+  background: #f3f8fc;
+}
+
+.workflow-steps button > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #e8f1fb;
+  color: #1f5f99;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.workflow-steps strong,
+.workflow-steps small {
+  display: block;
+  min-width: 0;
+}
+
+.workflow-steps strong {
+  font-size: 14px;
+}
+
+.workflow-steps small {
+  color: #637286;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.section-subtitle {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.section-subtitle strong,
+.section-subtitle span {
+  display: block;
+  min-width: 0;
+}
+
+.section-subtitle span {
+  color: #637286;
+  font-size: 12px;
+}
+
 .launch-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1377,5 +1453,18 @@ pre {
 
   .button {
     width: 100%;
+  }
+
+  .workflow-steps button {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .workflow-steps small {
+    grid-column: 2;
+  }
+
+  .section-subtitle {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

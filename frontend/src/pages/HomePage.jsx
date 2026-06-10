@@ -43,6 +43,34 @@ const moduleCards = [
   },
 ];
 
+const workflowSteps = [
+  {
+    title: '配置模型与 Chunk',
+    body: '先在配置里确认 Provider、默认 Embedding / Answer / Judge 模型，以及默认 Chunk 参数。',
+    target: 'config',
+  },
+  {
+    title: '准备数据',
+    body: '在数据里新建知识库 DB，导入 File 或静态 URL，检查来源状态后构建索引。',
+    target: 'data',
+  },
+  {
+    title: '搭建 Workflow',
+    body: '加载已有 Graph，或从空白/模板新建 Graph，再配置节点参数和连线。',
+    target: 'workflow',
+  },
+  {
+    title: '生成评测集',
+    body: '用 3-5 个示例 Query 生成 query-only 评测集，后续作为评分输入。',
+    target: 'queries',
+  },
+  {
+    title: '评测或外部调用',
+    body: '在评测里跑 RAGAS；当 RAG Graph 可调用后，也可以用 Runtime API 从其他语言接入。',
+    target: 'evaluation',
+  },
+];
+
 export function HomePage({ remote, onNavigate }) {
   const [capabilities, setCapabilities] = useState(null);
 
@@ -71,7 +99,23 @@ export function HomePage({ remote, onNavigate }) {
 
   return (
     <div className="home-dashboard">
-      <Panel title="产品导航" className="home-main-panel">
+      <Panel title="常见工作顺序" className="home-main-panel">
+        <ol className="workflow-steps">
+          {workflowSteps.map((step, index) => (
+            <li key={step.title}>
+              <button onClick={() => onNavigate(step.target)}>
+                <span>{index + 1}</span>
+                <strong>{step.title}</strong>
+                <small>{step.body}</small>
+              </button>
+            </li>
+          ))}
+        </ol>
+
+        <div className="section-subtitle">
+          <strong>模块入口</strong>
+          <span>也可以直接进入某个模块处理当前任务。</span>
+        </div>
         <div className="launch-grid">
           {moduleCards.map((card) => {
             const Icon = card.icon;
