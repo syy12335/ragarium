@@ -8,7 +8,6 @@ import {
   ListChecks,
   RefreshCw,
   SlidersHorizontal,
-  WandSparkles,
 } from 'lucide-react';
 import { api } from './api.js';
 import { Button } from './components/ui.jsx';
@@ -22,7 +21,6 @@ const tabs = [
   { id: 'home', label: '导航', subtitle: '产品入口与 Runtime API', icon: Home },
   { id: 'data', label: '数据', subtitle: '知识库与评测集', icon: Database },
   { id: 'workflow', label: 'Workflow', subtitle: 'Dify-like RAG pipeline 画布', icon: GitBranch },
-  { id: 'queries', label: 'Query 生成', subtitle: '进入数据页的评测集入口', icon: WandSparkles },
   { id: 'evaluation', label: '评测', subtitle: '无参考答案 RAGAS 运行', icon: ListChecks },
   { id: 'config', label: '配置', subtitle: 'Provider、模型角色和默认 Chunk 参数', icon: SlidersHorizontal },
 ];
