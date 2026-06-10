@@ -753,6 +753,18 @@ select:focus {
   font-size: 12px;
 }
 
+.source-error {
+  color: #b42318 !important;
+  overflow-wrap: anywhere;
+}
+
+.row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .chunk-preview {
   display: -webkit-box;
   margin: 0;

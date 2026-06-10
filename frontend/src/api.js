@@ -44,6 +44,8 @@ export const api = {
         chunk_overlap: options.chunk_overlap,
       }),
     }),
+  deleteSource: (knowledgeBaseId, sourceId) =>
+    request(`/api/knowledge-bases/${knowledgeBaseId}/sources/${sourceId}`, { method: 'DELETE' }),
   buildIndex: (knowledgeBaseId, overwrite = true) =>
     request(`/api/knowledge-bases/${knowledgeBaseId}/index`, {
       method: 'POST',

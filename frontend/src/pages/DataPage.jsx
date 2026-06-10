@@ -14,7 +14,7 @@ import {
 import { api } from '../api.js';
 import { Button, EmptyState, Field, HelpDot, IconButton, Panel, StatusPill } from '../components/ui.jsx';
 
-const supportedText = '支持 .txt、.md、.html、.pdf、.docx 文件和单页 URL；同一批来源会一起切割并保存到当前 name-db。';
+const supportedText = '支持 .txt、.md、.html、.pdf、.docx 文件和普通静态单页 URL；动态页面或登录页需要后续开启浏览器渲染解析。同一批来源会一起切割并保存到当前 name-db。';
 const defaultExamples = '如何配置这个产品？\n上传文档后怎么检索？\n评测结果怎么看？';
 
 function newSourceRow(type = 'file') {
@@ -150,6 +150,19 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
       throw new Error('请先选择或创建 DB');
     }
     const result = await api.buildIndex(selectedDbId, true);
+    await refreshDetail();
+    return result;
+  }
+
+  async function deleteSource(source) {
+    if (!selectedDbId) {
+      throw new Error('请先选择 DB');
+    }
+    const ok = window.confirm(`删除来源「${source.name}」？对应 chunks 也会一起删除。`);
+    if (!ok) {
+      return null;
+    }
+    const result = await api.deleteSource(selectedDbId, source.id);
     await refreshDetail();
     return result;
   }
@@ -379,8 +392,12 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
                       <span>
                         <strong>{source.name}</strong>
                         <small>{source.source_type}</small>
+                        {source.error ? <small className="source-error">{source.error}</small> : null}
                       </span>
-                      <StatusPill status={source.status} />
+                      <div className="row-actions">
+                        <StatusPill status={source.status} />
+                        <IconButton label="删除来源" icon={Trash2} onClick={() => runTask('删除来源中', () => deleteSource(source))} />
+                      </div>
                     </div>
                   ))}
                 </div>
