@@ -16,6 +16,7 @@ export function EvaluationPage({ remote, runTask, onNavigate }) {
     () => remote.workflows.filter((workflow) => workflow.runtime_capable),
     [remote.workflows],
   );
+  const hasQuerySets = remote.querySets.length > 0;
 
   function dbName(id) {
     return remote.knowledgeBases.find((db) => String(db.id) === String(id))?.name || `DB #${id}`;
@@ -31,49 +32,62 @@ export function EvaluationPage({ remote, runTask, onNavigate }) {
 
   return (
     <div className="two-column">
-      <Panel
-        title="无参考答案评测"
-        actions={(
-          <Button icon={WandSparkles} variant="secondary" onClick={() => onNavigate('queries')}>
-            去评测集
-          </Button>
+      <Panel title="无参考答案评测">
+        {!hasQuerySets ? (
+          <div className="prerequisite-card">
+            <div className="prerequisite-icon">
+              <WandSparkles size={20} />
+            </div>
+            <div>
+              <strong>先准备评测集</strong>
+              <span>评测需要一组 Query 作为输入。先去数据页创建评测集，回来后再选择 Workflow 运行 RAGAS。</span>
+            </div>
+            <Button icon={WandSparkles} variant="secondary" onClick={() => onNavigate('queries')}>
+              创建评测集
+            </Button>
+          </div>
+        ) : (
+          <>
+            <Field label="Query 集" help="选择要评测的问题列表；系统会逐条运行 Workflow 生成答案，再交给 RAGAS 评分。">
+              <select value={querySetId} onChange={(event) => setQuerySetId(event.target.value)}>
+                <option value="">选择 Query 集</option>
+                {remote.querySets.map((set) => (
+                  <option key={set.id} value={set.id}>
+                    {set.name} · {dbName(set.knowledge_base_id)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {querySet ? (
+              <div className="hint-box">
+                <strong>{querySet.queries.length} 个 queries</strong>
+                <span>来自 {dbName(querySet.knowledge_base_id)}</span>
+              </div>
+            ) : (
+              <div className="inline-action-hint">
+                <span>需要新建或管理评测集？</span>
+                <button type="button" onClick={() => onNavigate('queries')}>
+                  <WandSparkles size={14} />
+                  <span>去评测集</span>
+                </button>
+              </div>
+            )}
+            <Field label="Workflow" help="选择用于回答 Query 的 RAG Graph；评测指标会基于它生成的 answer 和 contexts。">
+              <select value={workflowId} onChange={(event) => setWorkflowId(event.target.value)}>
+                <option value="">选择 Workflow</option>
+                {runnableWorkflows.map((workflow) => (
+                  <option key={workflow.id} value={workflow.id}>{workflow.name}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="数量限制" help="限制本次评测使用多少条 Query；留空表示跑完整评测集，调试时可先填小数字。">
+              <input value={limit} onChange={(event) => setLimit(event.target.value)} placeholder="全部" />
+            </Field>
+            <Button icon={Play} disabled={!querySetId || !workflowId} onClick={() => runTask('启动评测中', runEvaluation)}>
+              运行评测
+            </Button>
+          </>
         )}
-      >
-        <Field label="Query 集" help="选择要评测的问题列表；系统会逐条运行 Workflow 生成答案，再交给 RAGAS 评分。">
-          <select value={querySetId} onChange={(event) => setQuerySetId(event.target.value)}>
-            <option value="">选择 Query 集</option>
-            {remote.querySets.map((set) => (
-              <option key={set.id} value={set.id}>
-                {set.name} · {dbName(set.knowledge_base_id)}
-              </option>
-            ))}
-          </select>
-        </Field>
-        {querySet ? (
-          <div className="hint-box">
-            <strong>{querySet.queries.length} 个 queries</strong>
-            <span>来自 {dbName(querySet.knowledge_base_id)}</span>
-          </div>
-        ) : !remote.querySets.length ? (
-          <div className="hint-box">
-            <strong>还没有评测集</strong>
-            <span>点击右上角“去评测集”，在数据页用示例 Query 生成一批问题后再回来评测。</span>
-          </div>
-        ) : null}
-        <Field label="Workflow" help="选择用于回答 Query 的 RAG Graph；评测指标会基于它生成的 answer 和 contexts。">
-          <select value={workflowId} onChange={(event) => setWorkflowId(event.target.value)}>
-            <option value="">选择 Workflow</option>
-            {runnableWorkflows.map((workflow) => (
-              <option key={workflow.id} value={workflow.id}>{workflow.name}</option>
-            ))}
-          </select>
-        </Field>
-        <Field label="数量限制" help="限制本次评测使用多少条 Query；留空表示跑完整评测集，调试时可先填小数字。">
-          <input value={limit} onChange={(event) => setLimit(event.target.value)} placeholder="全部" />
-        </Field>
-        <Button icon={Play} disabled={!querySetId || !workflowId} onClick={() => runTask('启动评测中', runEvaluation)}>
-          运行评测
-        </Button>
       </Panel>
 
       <Panel title="运行记录">
