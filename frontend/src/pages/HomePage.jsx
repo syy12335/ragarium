@@ -1,47 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Database,
-  GitBranch,
-  ListChecks,
   PlugZap,
-  SlidersHorizontal,
-  WandSparkles,
 } from 'lucide-react';
-import { API_BASE, api } from '../api.js';
-import { Panel, StatusPill } from '../components/ui.jsx';
-
-const moduleCards = [
-  {
-    id: 'data',
-    title: '数据',
-    body: '管理知识库与 query-only 评测集',
-    icon: Database,
-  },
-  {
-    id: 'workflow',
-    title: 'Workflow',
-    body: '三个可执行模板：离线 DB、RAG、评测',
-    icon: GitBranch,
-  },
-  {
-    id: 'queries',
-    title: 'Query 生成',
-    body: '快捷进入数据页的评测集入口',
-    icon: WandSparkles,
-  },
-  {
-    id: 'evaluation',
-    title: '评测',
-    body: '运行无参考答案 RAGAS 评测',
-    icon: ListChecks,
-  },
-  {
-    id: 'config',
-    title: '配置',
-    body: '管理 Provider、默认模型和 Chunk 参数',
-    icon: SlidersHorizontal,
-  },
-];
+import { api } from '../api.js';
+import { Panel } from '../components/ui.jsx';
 
 const workflowSteps = [
   {
@@ -65,9 +27,15 @@ const workflowSteps = [
     target: 'queries',
   },
   {
-    title: '评测或外部调用',
-    body: '在评测里跑 RAGAS；当 RAG Graph 可调用后，也可以用 Runtime API 从其他语言接入。',
+    title: '运行评测',
+    body: '在评测里选择 Query 集和可回答的 RAG Graph，运行 reference-free RAGAS 指标。',
     target: 'evaluation',
+  },
+  {
+    title: '部署 API 调用',
+    body: '当 RAG Graph 可调用后，用 Runtime API 从其他语言通过 HTTP 接入 question -> answer。',
+    target: 'workflow',
+    icon: PlugZap,
   },
 ];
 
@@ -112,23 +80,9 @@ export function HomePage({ remote, onNavigate }) {
           ))}
         </ol>
 
-        <div className="section-subtitle">
-          <strong>模块入口</strong>
-          <span>也可以直接进入某个模块处理当前任务。</span>
-        </div>
-        <div className="launch-grid">
-          {moduleCards.map((card) => {
-            const Icon = card.icon;
-            return (
-              <button className="launch-card" key={card.id} onClick={() => onNavigate(card.id)}>
-                <Icon size={20} />
-                <span>
-                  <strong>{card.title}</strong>
-                  <small>{card.body}</small>
-                </span>
-              </button>
-            );
-          })}
+        <div className="runtime-note">
+          <PlugZap size={18} />
+          <span>Runtime API：contract {capabilities?.output?.contract_version || 'v1'}，当前可调用 Workflow {callableWorkflows.length} 个。</span>
         </div>
       </Panel>
 
@@ -153,16 +107,6 @@ export function HomePage({ remote, onNavigate }) {
         </div>
       </Panel>
 
-      <Panel title="Runtime API" className="home-runtime-panel">
-        <div className="runtime-compact-card">
-          <PlugZap size={20} />
-          <div>
-            <strong>外部 HTTP 调用</strong>
-            <span>{API_BASE} · contract {capabilities?.output?.contract_version || 'v1'}</span>
-          </div>
-          <StatusPill status={capabilities?.output?.capabilities?.workflow_invoke ? 'ready' : 'failed'} />
-        </div>
-      </Panel>
     </div>
   );
 }

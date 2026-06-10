@@ -346,25 +346,6 @@ select:focus {
   line-height: 1.45;
 }
 
-.section-subtitle {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.section-subtitle strong,
-.section-subtitle span {
-  display: block;
-  min-width: 0;
-}
-
-.section-subtitle span {
-  color: #637286;
-  font-size: 12px;
-}
-
 .launch-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -456,6 +437,23 @@ select:focus {
   color: #637286;
   font-size: 12px;
   overflow-wrap: anywhere;
+}
+
+.runtime-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  color: #526174;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.runtime-note span {
+  min-width: 0;
 }
 
 .endpoint-list {
@@ -1463,8 +1461,4 @@ pre {
     grid-column: 2;
   }
 
-  .section-subtitle {
-    align-items: flex-start;
-    flex-direction: column;
-  }
 }
