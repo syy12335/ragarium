@@ -40,6 +40,7 @@ class AppConfigRequest(BaseModel):
     providers: Dict[str, Dict[str, Any]]
     roles: Dict[str, Dict[str, Any]]
     chunk: Dict[str, int]
+    api_keys: Dict[str, str] = Field(default_factory=dict)
 
 
 class IndexRequest(BaseModel):
@@ -172,7 +173,7 @@ def create_app(
 ) -> FastAPI:
     state_root = _default_state_root()
     store = store or ProductStore(state_root / "state.sqlite")
-    config_service = AppConfigService(config_path)
+    config_service = AppConfigService(config_path, secrets_path=state_root / "provider_keys.yaml")
     ingestion_service = ingestion_service or IngestionService(
         store,
         state_root / "uploads",

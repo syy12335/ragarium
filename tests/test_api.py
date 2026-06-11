@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass
 
+import yaml
 from fastapi.testclient import TestClient
 
 from rag_eval.api import create_app
@@ -62,6 +63,118 @@ class FakeEvalEngine:
     def invoke(self, runner, samples):
         assert samples
         return FakeEvalResult(overall={"faithfulness": 1.0, "answer_relevancy": 0.9}, csv_path="fake.csv")
+
+
+def test_api_config_reports_env_status(tmp_path, monkeypatch):
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    app_path = config_dir / "application.yaml"
+    (config_dir / "model_roles.yaml").write_text("{}", encoding="utf-8")
+    app_path.write_text(
+        yaml.safe_dump(
+            {
+                "llm": {
+                    "qwen": {
+                        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                        "api_key_env": "API_KEY_QWEN",
+                        "default_model_name": "qwen3.7-plus",
+                    }
+                }
+            },
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("API_KEY_QWEN", "test-key")
+
+    client = TestClient(create_app(store=ProductStore(tmp_path / "state.sqlite"), config_path=str(app_path)))
+    response = client.get("/api/config")
+
+    assert response.status_code == 200
+    assert response.json()["env_status"]["qwen"] == {
+        "api_key_env": "API_KEY_QWEN",
+        "configured": True,
+    }
+
+
+def test_api_config_rejects_empty_providers(tmp_path):
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    app_path = config_dir / "application.yaml"
+    (config_dir / "model_roles.yaml").write_text("{}", encoding="utf-8")
+    app_path.write_text(
+        yaml.safe_dump(
+            {
+                "llm": {
+                    "qwen": {
+                        "api_key_env": "API_KEY_QWEN",
+                    }
+                }
+            },
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+
+    client = TestClient(create_app(store=ProductStore(tmp_path / "state.sqlite"), config_path=str(app_path)))
+    response = client.put(
+        "/api/config",
+        json={
+            "providers": {},
+            "roles": {},
+            "chunk": {"chunk_size": 900, "chunk_overlap": 120},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "at least one provider" in response.json()["detail"]
+
+
+def test_api_config_accepts_managed_api_key_without_returning_secret(tmp_path, monkeypatch):
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    app_path = config_dir / "application.yaml"
+    (config_dir / "model_roles.yaml").write_text("{}", encoding="utf-8")
+    app_path.write_text(
+        yaml.safe_dump(
+            {
+                "llm": {
+                    "qwen": {
+                        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                        "api_key_env": "API_KEY_QWEN",
+                        "default_model_name": "qwen3.7-plus",
+                    }
+                }
+            },
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("RAG_EVAL_APP_HOME", str(tmp_path / "app_state"))
+    monkeypatch.delenv("API_KEY_QWEN", raising=False)
+
+    client = TestClient(create_app(store=ProductStore(tmp_path / "state.sqlite"), config_path=str(app_path)))
+    response = client.put(
+        "/api/config",
+        json={
+            "providers": {
+                "qwen": {
+                    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    "api_key_env": "API_KEY_QWEN",
+                    "default_model_name": "qwen3.7-plus",
+                }
+            },
+            "roles": {},
+            "chunk": {"chunk_size": 900, "chunk_overlap": 120},
+            "api_keys": {"qwen": "secret-key"},
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["env_status"]["qwen"]["configured"] is True
+    assert "api_key" not in data["providers"]["qwen"]
+    assert "secret-key" not in response.text
 
 
 def test_api_delete_source_removes_chunks_and_updates_kb_status(tmp_path):
