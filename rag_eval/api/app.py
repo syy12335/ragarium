@@ -47,6 +47,11 @@ class IndexRequest(BaseModel):
     overwrite: bool = True
 
 
+class RetrievalTestRequest(BaseModel):
+    query: str = Field(min_length=1)
+    top_k: int = Field(default=5, ge=1, le=20)
+
+
 class WorkflowRequest(BaseModel):
     name: str = Field(min_length=1)
     graph: Dict[str, Any]
@@ -892,6 +897,60 @@ def create_app(
             result = build_knowledge_base_index(knowledge_base_id, overwrite=payload.overwrite)
             result["status"] = result["index_status"]
             return result
+        except Exception as exc:
+            raise _http_error(exc)
+
+    @app.post("/api/knowledge-bases/{knowledge_base_id}/retrieval-test")
+    def test_knowledge_base_retrieval(
+        knowledge_base_id: int,
+        payload: RetrievalTestRequest,
+    ) -> Dict[str, Any]:
+        try:
+            query = payload.query.strip()
+            if not query:
+                raise ValueError("query is required")
+            kb = store.get_knowledge_base(knowledge_base_id)
+            if kb["index_status"] != "ready":
+                raise ValueError("知识库索引未就绪，请先构建索引")
+            config_service.read()
+            documents = vector_builder_factory().manager.invoke(
+                query,
+                k=payload.top_k,
+                collection_name=kb["collection_name"],
+            )
+            results = []
+            for index, document in enumerate(documents, start=1):
+                metadata = dict(getattr(document, "metadata", None) or {})
+                content = getattr(document, "page_content", None)
+                if content is None and isinstance(document, dict):
+                    metadata = dict(document.get("metadata") or {})
+                    content = document.get("content") or document.get("page_content") or ""
+                title_or_path = (
+                    metadata.get("title")
+                    or metadata.get("path")
+                    or metadata.get("file_name")
+                    or metadata.get("source")
+                    or metadata.get("url")
+                    or ""
+                )
+                results.append(
+                    {
+                        "rank": index,
+                        "content": str(content or ""),
+                        "source": metadata.get("source") or "",
+                        "title_or_path": title_or_path,
+                        "url": metadata.get("url") or "",
+                        "chunk_index": metadata.get("chunk_index"),
+                        "metadata": metadata,
+                    }
+                )
+            return {
+                "query": query,
+                "top_k": payload.top_k,
+                "knowledge_base_id": knowledge_base_id,
+                "collection_name": kb["collection_name"],
+                "results": results,
+            }
         except Exception as exc:
             raise _http_error(exc)
 

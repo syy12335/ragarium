@@ -44,6 +44,48 @@ class FakeVectorBuilder:
         self.collection_name = collection_name
 
 
+@dataclass
+class FakeRetrievedDocument:
+    page_content: str
+    metadata: dict
+
+
+class FakeRetrievalManager:
+    def __init__(self, env_name: str | None = None, expected_value: str | None = None):
+        self.calls = []
+        self.env_name = env_name
+        self.expected_value = expected_value
+
+    def invoke(self, query, *, k=3, collection_name=None):
+        if self.env_name:
+            assert os.environ.get(self.env_name) == self.expected_value
+        self.calls.append({"query": query, "k": k, "collection_name": collection_name})
+        return [
+            FakeRetrievedDocument(
+                page_content="Upload files, build an index, then test retrieval.",
+                metadata={
+                    "source": "guide.md",
+                    "title": "Guide",
+                    "url": "https://example.com/guide",
+                    "chunk_index": 2,
+                },
+            ),
+            FakeRetrievedDocument(
+                page_content="RAG evaluation can use query-only datasets.",
+                metadata={
+                    "source": "eval.md",
+                    "path": "docs/eval.md",
+                    "chunk_index": 4,
+                },
+            ),
+        ][:k]
+
+
+class FakeRetrievalVectorBuilder(FakeVectorBuilder):
+    def __init__(self, manager):
+        self.manager = manager
+
+
 class EnvAssertingVectorBuilder(FakeVectorBuilder):
     def __init__(self, env_name: str, expected_value: str):
         super().__init__()
@@ -401,6 +443,137 @@ def test_api_index_loads_managed_provider_key_before_build(tmp_path, monkeypatch
 
     assert index_response.status_code == 200
     assert index_response.json()["status"] == "ready"
+
+
+def test_api_retrieval_test_returns_ranked_chunks_from_current_collection(tmp_path):
+    store = ProductStore(tmp_path / "state.sqlite")
+    manager = FakeRetrievalManager()
+    app = create_app(
+        store=store,
+        vector_builder_factory=lambda: FakeRetrievalVectorBuilder(manager),
+    )
+    client = TestClient(app)
+    kb = client.post("/api/knowledge-bases", json={"name": "Docs"}).json()
+    store.update_knowledge_base_index_status(kb["id"], status="ready")
+
+    response = client.post(
+        f"/api/knowledge-bases/{kb['id']}/retrieval-test",
+        json={"query": "怎么测试召回？", "top_k": 2},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["query"] == "怎么测试召回？"
+    assert payload["top_k"] == 2
+    assert payload["collection_name"] == kb["collection_name"]
+    assert manager.calls == [
+        {
+            "query": "怎么测试召回？",
+            "k": 2,
+            "collection_name": kb["collection_name"],
+        }
+    ]
+    assert payload["results"][0]["rank"] == 1
+    assert payload["results"][0]["content"].startswith("Upload files")
+    assert payload["results"][0]["source"] == "guide.md"
+    assert payload["results"][0]["title_or_path"] == "Guide"
+    assert payload["results"][0]["url"] == "https://example.com/guide"
+    assert payload["results"][0]["chunk_index"] == 2
+    assert payload["results"][1]["title_or_path"] == "docs/eval.md"
+
+
+def test_api_retrieval_test_requires_ready_index(tmp_path):
+    store = ProductStore(tmp_path / "state.sqlite")
+    manager = FakeRetrievalManager()
+    app = create_app(
+        store=store,
+        vector_builder_factory=lambda: FakeRetrievalVectorBuilder(manager),
+    )
+    client = TestClient(app)
+    kb = client.post("/api/knowledge-bases", json={"name": "Docs"}).json()
+
+    response = client.post(
+        f"/api/knowledge-bases/{kb['id']}/retrieval-test",
+        json={"query": "怎么测试召回？", "top_k": 3},
+    )
+
+    assert response.status_code == 400
+    assert "索引未就绪" in response.json()["detail"]
+    assert manager.calls == []
+
+
+def test_api_retrieval_test_validates_query_and_top_k(tmp_path):
+    store = ProductStore(tmp_path / "state.sqlite")
+    app = create_app(
+        store=store,
+        vector_builder_factory=lambda: FakeRetrievalVectorBuilder(FakeRetrievalManager()),
+    )
+    client = TestClient(app)
+    kb = client.post("/api/knowledge-bases", json={"name": "Docs"}).json()
+    store.update_knowledge_base_index_status(kb["id"], status="ready")
+
+    empty_response = client.post(
+        f"/api/knowledge-bases/{kb['id']}/retrieval-test",
+        json={"query": " ", "top_k": 3},
+    )
+    invalid_top_k_response = client.post(
+        f"/api/knowledge-bases/{kb['id']}/retrieval-test",
+        json={"query": "怎么测试召回？", "top_k": 99},
+    )
+
+    assert empty_response.status_code == 400
+    assert empty_response.json()["detail"] == "query is required"
+    assert invalid_top_k_response.status_code == 422
+
+
+def test_api_retrieval_test_loads_managed_provider_key_before_query(tmp_path, monkeypatch):
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    app_path = config_dir / "application.yaml"
+    (config_dir / "model_roles.yaml").write_text("{}", encoding="utf-8")
+    app_path.write_text(
+        yaml.safe_dump(
+            {
+                "llm": {
+                    "qwen": {
+                        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                        "api_key_env": "TEST_RETRIEVAL_QWEN_KEY",
+                        "default_model_name": "qwen3.7-plus",
+                    }
+                },
+                "ingestion": {"chunk_size": 900, "chunk_overlap": 120},
+            },
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+    app_home = tmp_path / "var" / "app"
+    app_home.mkdir(parents=True)
+    (app_home / "provider_keys.yaml").write_text(
+        yaml.safe_dump({"api_keys": {"qwen": "managed-retrieval-secret"}}, allow_unicode=True),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("RAG_EVAL_APP_HOME", str(app_home))
+    monkeypatch.delenv("TEST_RETRIEVAL_QWEN_KEY", raising=False)
+
+    store = ProductStore(tmp_path / "state.sqlite")
+    manager = FakeRetrievalManager("TEST_RETRIEVAL_QWEN_KEY", "managed-retrieval-secret")
+    app = create_app(
+        store=store,
+        config_path=str(app_path),
+        vector_builder_factory=lambda: FakeRetrievalVectorBuilder(manager),
+    )
+    client = TestClient(app)
+    kb = client.post("/api/knowledge-bases", json={"name": "Docs"}).json()
+    store.update_knowledge_base_index_status(kb["id"], status="ready")
+
+    response = client.post(
+        f"/api/knowledge-bases/{kb['id']}/retrieval-test",
+        json={"query": "怎么测试召回？", "top_k": 1},
+    )
+
+    assert response.status_code == 200
+    assert manager.calls[0]["collection_name"] == kb["collection_name"]
 
 
 def test_api_import_index_generate_and_eval(tmp_path):
