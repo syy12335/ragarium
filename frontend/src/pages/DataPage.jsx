@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Database,
   FilePlus2,
+  GitBranch,
   Link2,
   ListChecks,
   Plus,
+  RotateCcw,
+  Settings2,
   Trash2,
   Upload,
   WandSparkles,
@@ -15,6 +18,7 @@ import { Button, EmptyState, Field, HelpDot, IconButton, Panel, StatusPill } fro
 
 const supportedText = '支持 .txt、.md、.html、.pdf、.docx 文件和单页 URL；URL 会用独立浏览器打开原页面并提取可见正文，登录页、验证码页可能失败。同一批来源会一起切割并保存到当前知识库 DB。';
 const defaultExamples = '如何配置这个产品？\n上传文档后怎么检索？\n评测结果怎么看？';
+const missingKeyPattern = /api key|api_key|environment variable|环境变量|未设置|not set|not found|未找到 llm|llm\..*未找到|缺少 .*provider/i;
 
 function newSourceRow() {
   return {
@@ -24,10 +28,11 @@ function newSourceRow() {
   };
 }
 
-export function DataPage({ remote, runTask, initialSection = 'landing', navigationKey = 0 }) {
+export function DataPage({ remote, runTask, initialSection = 'landing', navigationKey = 0, onNavigate = () => {} }) {
   const [viewMode, setViewMode] = useState('landing');
   const [selectedDbId, setSelectedDbId] = useState('');
   const [detail, setDetail] = useState(null);
+  const [appConfig, setAppConfig] = useState(null);
   const [rows, setRows] = useState([newSourceRow()]);
   const [chunk, setChunk] = useState({ chunk_size: 900, chunk_overlap: 120 });
   const [queryDbId, setQueryDbId] = useState('');
@@ -36,9 +41,20 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
   const [queryName, setQueryName] = useState('生成的 Query 集');
   const [selectedQuerySetId, setSelectedQuerySetId] = useState('');
   const [browserSessions, setBrowserSessions] = useState({});
+  const [activeAction, setActiveAction] = useState('');
+  const [showImportForm, setShowImportForm] = useState(true);
+  const [highlightFailedSources, setHighlightFailedSources] = useState(false);
+  const importPanelRef = useRef(null);
+  const sourcesPanelRef = useRef(null);
+  const firstSourceInputRef = useRef(null);
 
   useEffect(() => {
-    api.getConfig().then((config) => setChunk(config.chunk || chunk)).catch(() => {});
+    api.getConfig()
+      .then((config) => {
+        setAppConfig(config);
+        setChunk(config.chunk || chunk);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -58,6 +74,12 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
     }
     api.getKnowledgeBase(selectedDbId).then(setDetail).catch(() => setDetail(null));
   }, [selectedDbId, remote.knowledgeBases, viewMode]);
+
+  useEffect(() => {
+    if (viewMode === 'kb-detail' && detail && !(detail.sources || []).length) {
+      setShowImportForm(true);
+    }
+  }, [detail, viewMode]);
 
   useEffect(() => {
     if (!queryDbId && remote.knowledgeBases.length) {
@@ -80,8 +102,49 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
     [remote.querySets, queryDbId],
   );
 
+  const detailSummary = useMemo(() => {
+    const sources = detail?.sources || [];
+    const chunks = detail?.chunks || [];
+    const indexStatus = detail?.index_status || selectedDb?.index_status || 'not_indexed';
+    const indexError = detail?.index_error || selectedDb?.index_error || '';
+    const embeddingProvider = appConfig?.roles?.embedding?.provider || 'qwen';
+    return {
+      hasSources: sources.length > 0,
+      hasChunks: chunks.length > 0,
+      failedCount: sources.filter((source) => source.status === 'failed').length,
+      readyCount: sources.filter((source) => source.status === 'ready').length,
+      indexStatus,
+      indexError,
+      isIndexing: indexStatus === 'indexing' || indexStatus === 'processing',
+      isIndexFailed: indexStatus === 'failed',
+      isMissingKey: indexStatus === 'failed' && missingKeyPattern.test(indexError),
+      embeddingProvider,
+    };
+  }, [detail, selectedDb, appConfig]);
+
+  const hasPendingImport = useMemo(
+    () => rows.some((row) => row.file || row.url.trim()),
+    [rows],
+  );
+
   function dbName(id) {
     return remote.knowledgeBases.find((db) => String(db.id) === String(id))?.name || `DB #${id}`;
+  }
+
+  function isActionRunning(key) {
+    return activeAction === key;
+  }
+
+  async function runLocalTask(key, label, task) {
+    if (activeAction) {
+      return null;
+    }
+    setActiveAction(key);
+    try {
+      return await runTask(label, task);
+    } finally {
+      setActiveAction('');
+    }
   }
 
   function nextName(prefix, items) {
@@ -103,7 +166,9 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
   }
 
   function openKnowledgeBase(id) {
+    const db = remote.knowledgeBases.find((item) => String(item.id) === String(id));
     setSelectedDbId(String(id));
+    setShowImportForm(!db?.source_count);
     setViewMode('kb-detail');
   }
 
@@ -160,15 +225,18 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
     if (firstError) {
       throw firstError;
     }
+    setShowImportForm(false);
   }
 
   async function buildIndex() {
     if (!selectedDbId) {
       throw new Error('请先选择或创建 DB');
     }
-    const result = await api.buildIndex(selectedDbId, true);
-    await refreshDetail();
-    return result;
+    try {
+      return await api.buildIndex(selectedDbId, true);
+    } finally {
+      await refreshDetail();
+    }
   }
 
   async function deleteSource(source) {
@@ -234,6 +302,48 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
   function openQuerySet(id) {
     setSelectedQuerySetId(String(id));
     setViewMode('query-detail');
+  }
+
+  function goCreateQuerySetForCurrentDb() {
+    setQueryDbId(selectedDbId || (remote.knowledgeBases[0] ? String(remote.knowledgeBases[0].id) : ''));
+    setQueryExamples(defaultExamples);
+    setQueryTargetCount(10);
+    setQueryName(nextName('评测集', remote.querySets));
+    setSelectedQuerySetId('');
+    setViewMode('query-create');
+  }
+
+  function goConfigureEmbeddingProvider() {
+    onNavigate('config', {
+      intent: {
+        type: 'openProvider',
+        providerKey: detailSummary.embeddingProvider,
+      },
+    });
+  }
+
+  function scrollToRef(ref) {
+    window.requestAnimationFrame(() => {
+      ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  function startImportStep() {
+    if (hasPendingImport) {
+      return runLocalTask('import-sources', '导入来源中', importSources);
+    }
+    setShowImportForm(true);
+    scrollToRef(importPanelRef);
+    window.requestAnimationFrame(() => {
+      firstSourceInputRef.current?.focus();
+    });
+    return null;
+  }
+
+  function handleFailedSourcesStep() {
+    setHighlightFailedSources(true);
+    scrollToRef(sourcesPanelRef);
+    window.setTimeout(() => setHighlightFailedSources(false), 3000);
   }
 
   async function generateQuerySet() {
@@ -306,7 +416,12 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
                 <span>系统会自动命名；进入后再导入 File 或 URL。后续在 Workflow、Query 生成和评测里按这个 DB 选择数据来源。</span>
               </div>
             </div>
-            <Button icon={FilePlus2} onClick={() => runTask('创建 DB 中', createDb)}>
+            <Button
+              icon={FilePlus2}
+              loading={isActionRunning('create-db')}
+              loadingLabel="创建中"
+              onClick={() => runLocalTask('create-db', '创建 DB 中', createDb)}
+            >
               创建知识库
             </Button>
           </Panel>
@@ -316,6 +431,7 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
   }
 
   if (viewMode === 'kb-detail') {
+    const isImportTask = showImportForm || !detailSummary.hasSources;
     return (
       <div className="data-section-shell">
         <div className="minimal-back-row">
@@ -324,104 +440,124 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
           </Button>
         </div>
         <div className="data-main">
-          <Panel
-            title={
-              <span className="title-with-help">
-                导入资料到 {selectedDb?.name || '当前知识库'}
-                <HelpDot text={supportedText} />
-              </span>
-            }
-            actions={
-              detail?.sources?.length ? (
-                <Button icon={Database} variant="secondary" disabled={!selectedDbId} onClick={() => runTask('构建索引中', buildIndex)}>
-                  构建索引
-                </Button>
-              ) : null
-            }
-          >
-            {detail?.index_error ? <p className="error-text">{detail.index_error}</p> : null}
-
-            <div className="source-list">
-              {rows.map((row, index) => (
-                <div className="source-input-group" key={row.id}>
-                  {rows.length > 1 ? (
-                    <div className="source-row-head compact-head">
-                      <strong>来源 {index + 1}</strong>
-                      <IconButton className="danger" label="移除来源" icon={Trash2} onClick={() => removeRow(row.id)} />
-                    </div>
-                  ) : null}
-                  <Field label="资料来源" help="选择本地文件，或者粘贴网页 URL；填一个即可。多个来源请点“添加来源”。">
-                    <div className="source-composer">
-                      <label className={row.file ? 'file-picker has-file' : 'file-picker'}>
-                        <FilePlus2 size={18} />
-                        <span>
-                          <strong>{row.file ? row.file.name : '选择文件'}</strong>
-                          <small>PDF / Word / Markdown / HTML / TXT</small>
-                        </span>
-                        <input type="file" onChange={(event) => updateRow(row.id, { file: event.target.files?.[0] || null })} />
-                      </label>
-                      <div className="source-divider"><span>或</span></div>
-                      <div className="input-with-icon source-url-input">
-                        <Link2 size={16} />
-                        <input
-                          value={row.url}
-                          onChange={(event) => updateRow(row.id, { url: event.target.value })}
-                          placeholder="https://example.com/doc"
-                        />
-                      </div>
-                    </div>
-                  </Field>
-                </div>
-              ))}
-            </div>
-
-            <div className="source-add-row">
-              <Button icon={Plus} variant="secondary" onClick={() => setRows((current) => [...current, newSourceRow()])}>
-                添加来源
-              </Button>
-            </div>
-
-            <details className="advanced-settings">
-              <summary>高级设置</summary>
-              <div className="chunk-bar">
-                <Field label="Chunk size" help="控制每个切片的大致长度；切片越大，上下文更完整，但检索和评测成本更高。">
-                  <input
-                    type="number"
-                    min="100"
-                    value={chunk.chunk_size}
-                    onChange={(event) => setChunk((current) => ({ ...current, chunk_size: Number(event.target.value) }))}
-                  />
-                </Field>
-                <Field label="Overlap" help="控制相邻切片重复多少内容；适当重叠能减少句子被切断导致的检索丢失。">
-                  <input
-                    type="number"
-                    min="0"
-                    value={chunk.chunk_overlap}
-                    onChange={(event) => setChunk((current) => ({ ...current, chunk_overlap: Number(event.target.value) }))}
-                  />
-                </Field>
-              </div>
-            </details>
-
-            <Button
-              icon={Upload}
-              disabled={!selectedDbId || rows.every((row) => !row.file && !row.url.trim())}
-              onClick={() => runTask('导入来源中', importSources)}
+          <div ref={importPanelRef}>
+            <Panel
+              className={`current-task-panel ${currentTaskVariant(detailSummary, isImportTask)}`}
+              title={<CurrentTaskTitle summary={detailSummary} isImportTask={isImportTask} helpText={supportedText} />}
             >
-              开始导入
-            </Button>
-          </Panel>
+              {isImportTask ? (
+                <>
+                  <p className="current-task-desc">
+                    {hasPendingImport
+                      ? '资料已经选好，点击下方按钮后系统会解析正文并切成 chunks。'
+                      : '先选择一个文件，或者粘贴一个网页 URL。按钮会在有资料后可点击。'}
+                  </p>
+                  <div className="source-list">
+                    {rows.map((row, index) => (
+                      <div className="source-input-group" key={row.id}>
+                        {rows.length > 1 ? (
+                          <div className="source-row-head compact-head">
+                            <strong>来源 {index + 1}</strong>
+                            <IconButton className="danger" label="移除来源" icon={Trash2} onClick={() => removeRow(row.id)} />
+                          </div>
+                        ) : null}
+                        <Field label="资料来源" help="选择本地文件，或者粘贴网页 URL；填一个即可。多个来源请点“添加来源”。">
+                          <div className="source-composer">
+                            <label className={row.file ? 'file-picker has-file' : 'file-picker'}>
+                              <FilePlus2 size={18} />
+                              <span>
+                                <strong>{row.file ? row.file.name : '选择文件'}</strong>
+                                <small>PDF / Word / Markdown / HTML / TXT</small>
+                              </span>
+                              <input type="file" onChange={(event) => updateRow(row.id, { file: event.target.files?.[0] || null })} />
+                            </label>
+                            <div className="source-divider"><span>或</span></div>
+                            <div className="input-with-icon source-url-input">
+                              <Link2 size={16} />
+                              <input
+                                ref={index === 0 ? firstSourceInputRef : null}
+                                value={row.url}
+                                onChange={(event) => updateRow(row.id, { url: event.target.value })}
+                                placeholder="https://example.com/doc"
+                              />
+                            </div>
+                          </div>
+                        </Field>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="source-add-row">
+                    <Button icon={Plus} variant="secondary" onClick={() => setRows((current) => [...current, newSourceRow()])}>
+                      添加来源
+                    </Button>
+                  </div>
+
+                  <details className="advanced-settings">
+                    <summary>高级设置</summary>
+                    <div className="chunk-bar">
+                      <Field label="Chunk size" help="控制每个切片的大致长度；切片越大，上下文更完整，但检索和评测成本更高。">
+                        <input
+                          type="number"
+                          min="100"
+                          value={chunk.chunk_size}
+                          onChange={(event) => setChunk((current) => ({ ...current, chunk_size: Number(event.target.value) }))}
+                        />
+                      </Field>
+                      <Field label="Overlap" help="控制相邻切片重复多少内容；适当重叠能减少句子被切断导致的检索丢失。">
+                        <input
+                          type="number"
+                          min="0"
+                          value={chunk.chunk_overlap}
+                          onChange={(event) => setChunk((current) => ({ ...current, chunk_overlap: Number(event.target.value) }))}
+                        />
+                      </Field>
+                    </div>
+                  </details>
+
+                  <div className="current-task-footer">
+                    <Button
+                      className="current-task-primary"
+                      icon={Upload}
+                      disabled={!selectedDbId || !hasPendingImport}
+                      loading={isActionRunning('import-sources')}
+                      loadingLabel="导入中"
+                      onClick={startImportStep}
+                    >
+                      导入资料
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <KbTaskBody
+                  summary={detailSummary}
+                  selectedDbId={selectedDbId}
+                  isBuildRunning={isActionRunning('build-index')}
+                  onBuildIndex={() => runLocalTask('build-index', '构建索引中', buildIndex)}
+                  onHandleFailedSources={handleFailedSourcesStep}
+                  onConfigureProvider={goConfigureEmbeddingProvider}
+                  onGoWorkflow={() => onNavigate('workflow')}
+                  onGoQuerySet={goCreateQuerySetForCurrentDb}
+                  onAddMaterials={() => setShowImportForm(true)}
+                />
+              )}
+            </Panel>
+          </div>
 
           {(detail?.sources?.length || detail?.chunks?.length) ? (
             <div className="detail-grid">
-            <Panel title="来源">
+            <div className="detail-panel-anchor" ref={sourcesPanelRef}>
+              <Panel title="来源">
               {detail?.sources?.length ? (
                 <div className="table-list">
                   {detail.sources.map((source) => {
                     const sessionId = browserSessions[source.id];
                     const needsBrowser = source.error_code === 'browser_challenge';
                     return (
-                      <div className="table-row" key={source.id}>
+                      <div
+                        className={`table-row ${highlightFailedSources && source.status === 'failed' ? 'source-row-highlight' : ''}`}
+                        key={source.id}
+                      >
                         <span>
                           <strong>{source.name}</strong>
                           <small>{source.source_type}</small>
@@ -440,21 +576,35 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
                         <div className="row-actions">
                           {needsBrowser ? <span className="status-pill status-stale">需要浏览器处理</span> : <StatusPill status={source.status} />}
                           {needsBrowser && !sessionId ? (
-                            <Button variant="secondary" onClick={() => runTask('打开浏览器中', () => openBrowserForSource(source))}>
+                            <Button
+                              variant="secondary"
+                              loading={isActionRunning(`open-browser-${source.id}`)}
+                              loadingLabel="打开中"
+                              onClick={() => runLocalTask(`open-browser-${source.id}`, '打开浏览器中', () => openBrowserForSource(source))}
+                            >
                               打开浏览器处理
                             </Button>
                           ) : null}
                           {sessionId ? (
                             <>
-                              <Button onClick={() => runTask('提取正文中', () => extractBrowserForSource(source))}>
+                              <Button
+                                loading={isActionRunning(`extract-browser-${source.id}`)}
+                                loadingLabel="提取中"
+                                onClick={() => runLocalTask(`extract-browser-${source.id}`, '提取正文中', () => extractBrowserForSource(source))}
+                              >
                                 提取正文
                               </Button>
-                              <Button variant="secondary" onClick={() => runTask('关闭浏览器中', () => closeBrowserForSource(source))}>
+                              <Button
+                                variant="secondary"
+                                loading={isActionRunning(`close-browser-${source.id}`)}
+                                loadingLabel="关闭中"
+                                onClick={() => runLocalTask(`close-browser-${source.id}`, '关闭浏览器中', () => closeBrowserForSource(source))}
+                              >
                                 关闭浏览器
                               </Button>
                             </>
                           ) : null}
-                          <IconButton className="danger" label="删除来源" icon={Trash2} onClick={() => runTask('删除来源中', () => deleteSource(source))} />
+                          <IconButton className="danger" label="删除来源" icon={Trash2} onClick={() => runLocalTask(`delete-source-${source.id}`, '删除来源中', () => deleteSource(source))} />
                         </div>
                       </div>
                     );
@@ -463,7 +613,8 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
               ) : (
                 <EmptyState title="暂无来源" body="向当前 DB 添加一个 File 或 URL。" />
               )}
-            </Panel>
+              </Panel>
+            </div>
 
             <Panel title="Chunk 预览">
               {detail?.chunks?.length ? (
@@ -546,7 +697,13 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
                 <input type="number" min="1" max="500" value={queryTargetCount} onChange={(event) => setQueryTargetCount(Number(event.target.value))} />
               </Field>
             </details>
-            <Button icon={WandSparkles} disabled={!queryDbId} onClick={() => runTask('生成 Query 中', generateQuerySet)}>
+            <Button
+              icon={WandSparkles}
+              disabled={!queryDbId}
+              loading={isActionRunning('generate-query-set')}
+              loadingLabel="生成中"
+              onClick={() => runLocalTask('generate-query-set', '生成 Query 中', generateQuerySet)}
+            >
               生成
             </Button>
           </Panel>
@@ -625,4 +782,202 @@ function DataBackHeader({ title, subtitle, onBack }) {
       </div>
     </div>
   );
+}
+
+function CurrentTaskTitle({ summary, isImportTask, helpText }) {
+  return (
+    <span className="current-task-title">
+      <span className="current-task-index">{currentTaskIndex(summary, isImportTask)}</span>
+      <span>
+        <strong>{currentTaskTitle(summary, isImportTask)}</strong>
+        {isImportTask ? <HelpDot text={helpText} /> : null}
+      </span>
+    </span>
+  );
+}
+
+function KbTaskBody({
+  summary,
+  selectedDbId,
+  isBuildRunning,
+  onBuildIndex,
+  onHandleFailedSources,
+  onConfigureProvider,
+  onGoWorkflow,
+  onGoQuerySet,
+  onAddMaterials,
+}) {
+  const isIndexed = summary.indexStatus === 'ready';
+  const canBuild = selectedDbId && summary.hasChunks && !isIndexed && !summary.isIndexing && !summary.isIndexFailed;
+
+  if (!summary.hasChunks) {
+    return (
+      <div className="current-task-body">
+        <p className="current-task-desc">
+          目前还没有可用 chunks。请看下方来源里的失败原因，必要时删除失败来源，换一个可访问页面或用浏览器处理。
+        </p>
+        <div className="current-task-actions">
+          <Button className="current-task-primary" icon={ListChecks} onClick={onHandleFailedSources}>
+            处理失败来源
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (summary.isIndexing) {
+    return (
+      <div className="current-task-body">
+        <p className="current-task-desc">系统正在把 chunks 写入向量库。完成后这里会自动替换成 Workflow 和评测集入口。</p>
+        <div className="current-task-actions">
+          <Button className="current-task-primary" icon={Database} loading loadingLabel="构建中">
+            构建中
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (summary.isMissingKey) {
+    return (
+      <div className="current-task-body">
+        <p className="current-task-desc">Embedding 模型还没有可用 Key。先填写 Provider 的 API Key，再回来重试构建索引。</p>
+        <details className="next-step-error-details">
+          <summary>查看技术错误</summary>
+          <p>{summary.indexError}</p>
+        </details>
+        <div className="current-task-actions">
+          <Button className="current-task-primary" icon={Settings2} onClick={onConfigureProvider}>
+            去配置 Provider
+          </Button>
+          <Button
+            icon={RotateCcw}
+            variant="secondary"
+            loading={isBuildRunning}
+            loadingLabel="重试中"
+            onClick={onBuildIndex}
+          >
+            重试构建索引
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (summary.isIndexFailed) {
+    return (
+      <div className="current-task-body">
+        <p className="current-task-desc">{summarizeIndexError(summary.indexError)}</p>
+        {summary.indexError ? (
+          <details className="next-step-error-details">
+            <summary>查看技术错误</summary>
+            <p>{summary.indexError}</p>
+          </details>
+        ) : null}
+        <div className="current-task-actions">
+          <Button
+            className="current-task-primary"
+            icon={RotateCcw}
+            loading={isBuildRunning}
+            loadingLabel="重试中"
+            onClick={onBuildIndex}
+          >
+            重试构建索引
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (isIndexed) {
+    return (
+      <div className="current-task-body">
+        <p className="current-task-desc">索引已经就绪。进入 Workflow 后新建或加载 Graph，在 Retrieve 节点选择这个知识库。</p>
+        <div className="current-task-actions">
+          <Button className="current-task-primary" icon={GitBranch} onClick={onGoWorkflow}>
+            去 Workflow
+          </Button>
+          <Button icon={ListChecks} variant="secondary" onClick={onGoQuerySet}>
+            生成评测集
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (canBuild) {
+    return (
+      <div className="current-task-body">
+        <p className="current-task-desc">资料已经切成 chunks，但还不能被 Retrieve 节点检索。先构建索引，再去 Workflow 做 RAG。</p>
+        <div className="current-task-actions">
+          <Button className="current-task-primary" icon={Database} loading={isBuildRunning} loadingLabel="构建中" onClick={onBuildIndex}>
+            构建索引
+          </Button>
+          <Button icon={Plus} variant="secondary" onClick={onAddMaterials}>
+            继续添加资料
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+function currentTaskTitle(summary, isImportTask) {
+  if (isImportTask) {
+    return summary.hasSources ? '添加资料' : '下一步：导入资料';
+  }
+  if (!summary.hasChunks) {
+    return '下一步：处理失败来源';
+  }
+  if (summary.isIndexing) {
+    return '下一步：等待索引完成';
+  }
+  if (summary.isMissingKey) {
+    return '下一步：配置 API Key';
+  }
+  if (summary.isIndexFailed) {
+    return '下一步：重试构建索引';
+  }
+  if (summary.indexStatus === 'ready') {
+    return '下一步：去 Workflow 做 RAG';
+  }
+  return '下一步：构建索引';
+}
+
+function currentTaskIndex(summary, isImportTask) {
+  if (isImportTask) {
+    return summary.hasSources ? '+' : '1';
+  }
+  if (!summary.hasChunks || summary.isMissingKey || summary.isIndexFailed) {
+    return '!';
+  }
+  if (summary.indexStatus === 'ready') {
+    return '3';
+  }
+  return '2';
+}
+
+function currentTaskVariant(summary, isImportTask) {
+  if (isImportTask) {
+    return 'active';
+  }
+  if (!summary.hasChunks || summary.isMissingKey || summary.isIndexFailed) {
+    return 'warning';
+  }
+  if (summary.indexStatus === 'ready') {
+    return 'ready';
+  }
+  return 'active';
+}
+
+function summarizeIndexError(error) {
+  if (!error) {
+    return '构建索引时出现未知错误，请重试；如果仍失败，再查看技术错误。';
+  }
+  if (missingKeyPattern.test(error)) {
+    return 'Embedding 模型缺少 API Key。请先配置 Provider，再重试构建索引。';
+  }
+  return '构建索引时出错。可以先重试；如果仍失败，再展开查看技术错误。';
 }

@@ -1,10 +1,11 @@
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Loader2 } from 'lucide-react';
 
-export function Button({ children, icon: Icon, variant = 'primary', ...props }) {
+export function Button({ children, icon: Icon, variant = 'primary', loading = false, loadingLabel, disabled, className = '', ...props }) {
+  const LeadingIcon = loading ? Loader2 : Icon;
   return (
-    <button className={`button ${variant}`} {...props}>
-      {Icon ? <Icon size={16} /> : null}
-      <span>{children}</span>
+    <button className={`button ${variant} ${className}`.trim()} disabled={disabled || loading} aria-busy={loading || undefined} {...props}>
+      {LeadingIcon ? <LeadingIcon className={loading ? 'spin' : ''} size={16} /> : null}
+      <span>{loading ? loadingLabel || children : children}</span>
     </button>
   );
 }
