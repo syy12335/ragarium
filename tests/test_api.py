@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from copy import deepcopy
 from dataclasses import dataclass
 
@@ -41,6 +42,17 @@ class FakeVectorBuilder:
     def build_from_chunks(self, chunks, *, collection_name, overwrite=True):
         self.chunks = chunks
         self.collection_name = collection_name
+
+
+class EnvAssertingVectorBuilder(FakeVectorBuilder):
+    def __init__(self, env_name: str, expected_value: str):
+        super().__init__()
+        self.env_name = env_name
+        self.expected_value = expected_value
+
+    def build_from_chunks(self, chunks, *, collection_name, overwrite=True):
+        assert os.environ.get(self.env_name) == self.expected_value
+        super().build_from_chunks(chunks, collection_name=collection_name, overwrite=overwrite)
 
 
 class FakeWorkflowEngine(WorkflowEngine):
@@ -329,6 +341,66 @@ def test_api_browser_session_rejects_invalid_source_and_session(tmp_path):
 
     close_response = client.post("/api/browser-sessions/missing/close")
     assert close_response.status_code == 404
+
+
+def test_api_index_loads_managed_provider_key_before_build(tmp_path, monkeypatch):
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    app_path = config_dir / "application.yaml"
+    roles_path = config_dir / "model_roles.yaml"
+    app_path.write_text(
+        yaml.safe_dump(
+            {
+                "llm": {
+                    "qwen": {
+                        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                        "api_key_env": "TEST_INDEX_QWEN_KEY",
+                        "default_model_name": "qwen3.7-plus",
+                    }
+                }
+            },
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+    roles_path.write_text(
+        yaml.safe_dump(
+            {
+                "embedding": {"provider": "qwen", "model_name": "text-embedding-v4"},
+                "generation": {"provider": "qwen", "model_name": "qwen3.7-plus"},
+                "evaluation": {"provider": "qwen", "model_name": "qwen3.7-plus"},
+            },
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+    app_home = tmp_path / "var" / "app"
+    app_home.mkdir(parents=True)
+    (app_home / "provider_keys.yaml").write_text(
+        yaml.safe_dump({"api_keys": {"qwen": "managed-secret"}}, allow_unicode=True),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("RAG_EVAL_APP_HOME", str(app_home))
+    monkeypatch.delenv("TEST_INDEX_QWEN_KEY", raising=False)
+
+    store = ProductStore(tmp_path / "state.sqlite")
+    app = create_app(
+        store=store,
+        config_path=str(app_path),
+        vector_builder_factory=lambda: EnvAssertingVectorBuilder("TEST_INDEX_QWEN_KEY", "managed-secret"),
+    )
+    client = TestClient(app)
+    kb = client.post("/api/knowledge-bases", json={"name": "Docs"}).json()
+    upload_response = client.post(
+        f"/api/knowledge-bases/{kb['id']}/files",
+        files={"file": ("doc.txt", b"Import files, chunk text, and evaluate RAG.", "text/plain")},
+    )
+    assert upload_response.status_code == 200
+
+    index_response = client.post(f"/api/knowledge-bases/{kb['id']}/index", json={"overwrite": True})
+
+    assert index_response.status_code == 200
+    assert index_response.json()["status"] == "ready"
 
 
 def test_api_import_index_generate_and_eval(tmp_path):

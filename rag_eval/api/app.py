@@ -854,6 +854,7 @@ def create_app(
             chunk_config=chunk_config,
         )
         try:
+            config_service.read()
             kb = store.get_knowledge_base(knowledge_base_id)
             chunks = store.list_chunks(knowledge_base_id)
             builder = vector_builder_factory()
