@@ -9,13 +9,13 @@ import { Button, Panel, StatusPill } from '../components/ui.jsx';
 
 const workflowSteps = [
   {
-    title: '配置模型与 Chunk',
-    body: '先在配置里确认 Provider、默认 Embedding / Answer / Judge 模型，以及默认 Chunk 参数。',
+    title: '配置 Provider 与模型',
+    body: '先在配置里确认至少一个 Provider，再确认默认 Embedding / Answer / Judge 模型。',
     target: 'config',
   },
   {
     title: '准备数据',
-    body: '在数据里新建知识库 DB，导入 File 或静态 URL，检查来源状态后构建索引。',
+    body: '在数据里新建知识库 DB，导入 File 或 URL，检查来源状态后构建索引。',
     target: 'data',
   },
   {
