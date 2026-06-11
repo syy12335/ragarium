@@ -22,7 +22,7 @@ const tabs = [
   { id: 'data', label: '数据', subtitle: '知识库与评测集', icon: Database },
   { id: 'workflow', label: 'Workflow', subtitle: 'Dify-like RAG pipeline 画布', icon: GitBranch },
   { id: 'evaluation', label: '评测', subtitle: '无参考答案 RAGAS 运行', icon: ListChecks },
-  { id: 'config', label: '配置', subtitle: 'Provider、模型角色和默认 Chunk 参数', icon: SlidersHorizontal },
+  { id: 'config', label: '配置', subtitle: 'Provider、默认模型和高级参数', icon: SlidersHorizontal },
 ];
 
 function useRemoteState() {
