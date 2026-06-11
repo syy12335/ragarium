@@ -62,6 +62,7 @@ class ProductStore:
                     stored_path TEXT,
                     status TEXT NOT NULL,
                     error TEXT,
+                    error_code TEXT,
                     created_at TEXT NOT NULL
                 );
 
@@ -106,6 +107,7 @@ class ProductStore:
                 """
             )
             self._ensure_knowledge_base_columns(conn)
+            self._ensure_source_columns(conn)
 
     def _ensure_knowledge_base_columns(self, conn: sqlite3.Connection) -> None:
         existing = {
@@ -121,6 +123,18 @@ class ProductStore:
         for name, definition in columns.items():
             if name not in existing:
                 conn.execute(f"ALTER TABLE knowledge_bases ADD COLUMN {name} {definition}")
+
+    def _ensure_source_columns(self, conn: sqlite3.Connection) -> None:
+        existing = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(sources)").fetchall()
+        }
+        columns = {
+            "error_code": "TEXT",
+        }
+        for name, definition in columns.items():
+            if name not in existing:
+                conn.execute(f"ALTER TABLE sources ADD COLUMN {name} {definition}")
 
     @staticmethod
     def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
@@ -246,16 +260,20 @@ class ProductStore:
         *,
         status: str,
         error: Optional[str] = None,
+        error_code: Optional[str] = None,
         stored_path: Optional[str] = None,
     ) -> None:
         with self.connect() as conn:
             conn.execute(
                 """
                 UPDATE sources
-                SET status = ?, error = ?, stored_path = COALESCE(?, stored_path)
+                SET status = ?,
+                    error = ?,
+                    error_code = ?,
+                    stored_path = COALESCE(?, stored_path)
                 WHERE id = ?
                 """,
-                (status, error, stored_path, source_id),
+                (status, error, error_code, stored_path, source_id),
             )
 
     def get_source(self, source_id: int) -> Dict[str, Any]:

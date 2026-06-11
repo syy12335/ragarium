@@ -10,6 +10,7 @@ from rag_eval.storage import ProductStore
 from .chunking import chunk_document
 from .loaders import ParsedDocument, parse_file, parse_url
 
+BROWSER_CHALLENGE_ERROR_CODE = "browser_challenge"
 UNREADABLE_SOURCE_ERROR = "浏览器已打开原页面，但未获得可切分正文；可能是登录、验证码、反爬或页面无正文"
 BLOCKED_PAGE_MARKERS = (
     "trouble accessing google search",
@@ -40,6 +41,12 @@ SHORT_SHELL_MARKERS = (
     "send feedback",
 )
 SHELL_TEXT_MAX_LENGTH = 180
+
+
+class SourceParseError(ValueError):
+    def __init__(self, message: str, *, error_code: Optional[str] = None) -> None:
+        super().__init__(message)
+        self.error_code = error_code
 
 
 class IngestionService:
@@ -95,7 +102,7 @@ class IngestionService:
                 chunk_size=self._resolve_chunk_size(chunk_size),
                 chunk_overlap=self._resolve_chunk_overlap(chunk_overlap),
             )
-            self._ensure_parseable_text(parsed, chunks)
+            self._ensure_parseable_text(parsed, chunks, source_type="file")
             self.store.replace_source_chunks(knowledge_base_id, source["id"], chunks)
             self.store.update_source_status(source["id"], status="ready", stored_path=str(stored_path))
             source = self.store.get_source(source["id"])
@@ -103,7 +110,12 @@ class IngestionService:
             return source
         except Exception as exc:
             self.store.replace_source_chunks(knowledge_base_id, source["id"], [])
-            self.store.update_source_status(source["id"], status="failed", error=str(exc))
+            self.store.update_source_status(
+                source["id"],
+                status="failed",
+                error=str(exc),
+                error_code=getattr(exc, "error_code", None),
+            )
             raise
 
     def ingest_bytes(
@@ -147,7 +159,7 @@ class IngestionService:
                 chunk_size=self._resolve_chunk_size(chunk_size),
                 chunk_overlap=self._resolve_chunk_overlap(chunk_overlap),
             )
-            self._ensure_parseable_text(parsed, chunks)
+            self._ensure_parseable_text(parsed, chunks, source_type="url")
             self.store.replace_source_chunks(knowledge_base_id, source["id"], chunks)
             self.store.update_source_status(source["id"], status="ready")
             source = self.store.get_source(source["id"])
@@ -155,7 +167,46 @@ class IngestionService:
             return source
         except Exception as exc:
             self.store.replace_source_chunks(knowledge_base_id, source["id"], [])
-            self.store.update_source_status(source["id"], status="failed", error=str(exc))
+            self.store.update_source_status(
+                source["id"],
+                status="failed",
+                error=str(exc),
+                error_code=getattr(exc, "error_code", None),
+            )
+            raise
+
+    def update_url_source_from_parsed(
+        self,
+        knowledge_base_id: int,
+        source_id: int,
+        parsed: ParsedDocument,
+        *,
+        chunk_size: Optional[int] = None,
+        chunk_overlap: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        source = self.store.get_source(source_id)
+        if int(source["knowledge_base_id"]) != int(knowledge_base_id) or source.get("source_type") != "url":
+            raise KeyError(f"url source not found: {source_id}")
+        chunks = chunk_document(
+            parsed,
+            chunk_size=self._resolve_chunk_size(chunk_size),
+            chunk_overlap=self._resolve_chunk_overlap(chunk_overlap),
+        )
+        try:
+            self._ensure_parseable_text(parsed, chunks, source_type="url")
+            self.store.replace_source_chunks(knowledge_base_id, source_id, chunks)
+            self.store.update_source_status(source_id, status="ready")
+            updated = self.store.get_source(source_id)
+            updated["chunk_count"] = len(chunks)
+            return updated
+        except Exception as exc:
+            self.store.replace_source_chunks(knowledge_base_id, source_id, [])
+            self.store.update_source_status(
+                source_id,
+                status="failed",
+                error=str(exc),
+                error_code=getattr(exc, "error_code", None),
+            )
             raise
 
     def reprocess_knowledge_base_sources(
@@ -182,7 +233,7 @@ class IngestionService:
                     chunk_size=resolved_chunk_size,
                     chunk_overlap=resolved_chunk_overlap,
                 )
-                self._ensure_parseable_text(parsed, chunks)
+                self._ensure_parseable_text(parsed, chunks, source_type=str(source.get("source_type") or ""))
                 self.store.replace_source_chunks(
                     knowledge_base_id,
                     int(source["id"]),
@@ -204,6 +255,7 @@ class IngestionService:
                     source["id"],
                     status="failed",
                     error=str(exc),
+                    error_code=getattr(exc, "error_code", None),
                 )
 
         if errors:
@@ -232,15 +284,23 @@ class IngestionService:
         raise ValueError(f"unsupported source type: {source_type}")
 
     @staticmethod
-    def _ensure_parseable_text(parsed: ParsedDocument, chunks: List[Dict[str, Any]]) -> None:
+    def _ensure_parseable_text(
+        parsed: ParsedDocument,
+        chunks: List[Dict[str, Any]],
+        *,
+        source_type: str = "",
+    ) -> None:
+        is_url = source_type == "url"
         if not chunks:
+            if is_url:
+                raise SourceParseError(UNREADABLE_SOURCE_ERROR, error_code=BROWSER_CHALLENGE_ERROR_CODE)
             raise ValueError(UNREADABLE_SOURCE_ERROR)
         text = " ".join((parsed.content or "").split())
         normalized = text.lower()
-        if any(marker in normalized for marker in BLOCKED_PAGE_MARKERS):
-            raise ValueError(UNREADABLE_SOURCE_ERROR)
-        if len(text) <= SHELL_TEXT_MAX_LENGTH and any(marker in normalized for marker in SHORT_SHELL_MARKERS):
-            raise ValueError(UNREADABLE_SOURCE_ERROR)
+        if is_url and any(marker in normalized for marker in BLOCKED_PAGE_MARKERS):
+            raise SourceParseError(UNREADABLE_SOURCE_ERROR, error_code=BROWSER_CHALLENGE_ERROR_CODE)
+        if is_url and len(text) <= SHELL_TEXT_MAX_LENGTH and any(marker in normalized for marker in SHORT_SHELL_MARKERS):
+            raise SourceParseError(UNREADABLE_SOURCE_ERROR, error_code=BROWSER_CHALLENGE_ERROR_CODE)
 
     def _default_chunk_config(self) -> Dict[str, int]:
         if self.config_service is None:

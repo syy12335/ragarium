@@ -119,6 +119,7 @@ def test_ingestion_service_rejects_url_without_text_chunks(tmp_path, monkeypatch
 
     sources = store.list_sources(kb["id"])
     assert sources[0]["status"] == "failed"
+    assert sources[0]["error_code"] == "browser_challenge"
     assert "未获得可切分正文" in sources[0]["error"]
     assert store.list_chunks(kb["id"]) == []
 
@@ -142,6 +143,7 @@ def test_ingestion_service_rejects_js_redirect_shell(tmp_path, monkeypatch):
 
     sources = store.list_sources(kb["id"])
     assert sources[0]["status"] == "failed"
+    assert sources[0]["error_code"] == "browser_challenge"
     assert "未获得可切分正文" in sources[0]["error"]
     assert store.list_chunks(kb["id"]) == []
 
@@ -163,7 +165,9 @@ def test_ingestion_service_rejects_browser_challenge_page(tmp_path, monkeypatch)
     with pytest.raises(ValueError, match="未获得可切分正文"):
         service.ingest_url(kb["id"], "https://www.google.com/search?q=good")
 
-    assert store.list_sources(kb["id"])[0]["status"] == "failed"
+    source = store.list_sources(kb["id"])[0]
+    assert source["status"] == "failed"
+    assert source["error_code"] == "browser_challenge"
     assert store.list_chunks(kb["id"]) == []
 
 
