@@ -253,6 +253,11 @@ select:focus {
 }
 
 .icon-button:hover {
+  border-color: #2563a6;
+  color: #2563a6;
+}
+
+.icon-button.danger:hover {
   border-color: #b42318;
   color: #b42318;
 }
@@ -957,11 +962,76 @@ select:focus {
   min-height: 28px;
 }
 
-.unified-source-grid {
+.source-composer {
   display: grid;
-  grid-template-columns: minmax(220px, 0.8fr) minmax(260px, 1.2fr);
-  gap: 10px;
+  gap: 8px;
+}
+
+.file-picker {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fbfdff;
+  color: #263445;
+  cursor: pointer;
+}
+
+.file-picker:hover,
+.file-picker.has-file {
+  border-color: #2563a6;
+  background: #f3f8fc;
+}
+
+.file-picker span,
+.file-picker strong,
+.file-picker small {
+  display: block;
+  min-width: 0;
+}
+
+.file-picker strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-picker small {
+  margin-top: 3px;
+  color: #637286;
+  font-size: 12px;
+}
+
+.file-picker input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.source-divider {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  color: #8794a6;
+  font-size: 12px;
+}
+
+.source-divider::before,
+.source-divider::after {
+  content: "";
+  height: 1px;
+  background: #e2e8f0;
+}
+
+.source-url-input {
+  min-height: 44px;
 }
 
 .source-add-row {

@@ -13,7 +13,7 @@ import {
 import { api } from '../api.js';
 import { Button, EmptyState, Field, HelpDot, IconButton, Panel, StatusPill } from '../components/ui.jsx';
 
-const supportedText = '支持 .txt、.md、.html、.pdf、.docx 文件和普通静态单页 URL；动态页面或登录页需要后续开启浏览器渲染解析。同一批来源会一起切割并保存到当前知识库 DB。';
+const supportedText = '支持 .txt、.md、.html、.pdf、.docx 文件和单页 URL；URL 会用独立浏览器打开原页面并提取可见正文，登录页、验证码页可能失败。同一批来源会一起切割并保存到当前知识库 DB。';
 const defaultExamples = '如何配置这个产品？\n上传文档后怎么检索？\n评测结果怎么看？';
 
 function newSourceRow() {
@@ -300,13 +300,21 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
                   {rows.length > 1 ? (
                     <div className="source-row-head compact-head">
                       <strong>来源 {index + 1}</strong>
-                      <IconButton label="移除来源" icon={Trash2} onClick={() => removeRow(row.id)} />
+                      <IconButton className="danger" label="移除来源" icon={Trash2} onClick={() => removeRow(row.id)} />
                     </div>
                   ) : null}
-                  <Field label="文件或 URL" help="选择本地文件，或粘贴一个网页 URL；填一个就可以导入。">
-                    <div className="unified-source-grid">
-                      <input type="file" onChange={(event) => updateRow(row.id, { file: event.target.files?.[0] || null })} />
-                      <div className="input-with-icon">
+                  <Field label="资料来源" help="选择本地文件，或者粘贴网页 URL；填一个即可。多个来源请点“添加来源”。">
+                    <div className="source-composer">
+                      <label className={row.file ? 'file-picker has-file' : 'file-picker'}>
+                        <FilePlus2 size={18} />
+                        <span>
+                          <strong>{row.file ? row.file.name : '选择文件'}</strong>
+                          <small>PDF / Word / Markdown / HTML / TXT</small>
+                        </span>
+                        <input type="file" onChange={(event) => updateRow(row.id, { file: event.target.files?.[0] || null })} />
+                      </label>
+                      <div className="source-divider"><span>或</span></div>
+                      <div className="input-with-icon source-url-input">
                         <Link2 size={16} />
                         <input
                           value={row.url}
@@ -371,7 +379,7 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
                       </span>
                       <div className="row-actions">
                         <StatusPill status={source.status} />
-                        <IconButton label="删除来源" icon={Trash2} onClick={() => runTask('删除来源中', () => deleteSource(source))} />
+                        <IconButton className="danger" label="删除来源" icon={Trash2} onClick={() => runTask('删除来源中', () => deleteSource(source))} />
                       </div>
                     </div>
                   ))}
