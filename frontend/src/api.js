@@ -57,6 +57,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ overwrite }),
     }),
+  testRetrieval: (knowledgeBaseId, payload) =>
+    request(`/api/knowledge-bases/${knowledgeBaseId}/retrieval-test`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   listWorkflowTemplates: () => request('/api/workflows/templates'),
   getDefaultWorkflow: (templateId = 'blank') => request(`/api/workflows/default?template_id=${encodeURIComponent(templateId)}`),
   listWorkflows: () => request('/api/workflows'),

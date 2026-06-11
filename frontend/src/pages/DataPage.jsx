@@ -8,6 +8,7 @@ import {
   ListChecks,
   Plus,
   RotateCcw,
+  Search,
   Settings2,
   Trash2,
   Upload,
@@ -44,6 +45,10 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
   const [activeAction, setActiveAction] = useState('');
   const [showImportForm, setShowImportForm] = useState(true);
   const [highlightFailedSources, setHighlightFailedSources] = useState(false);
+  const [retrievalQuery, setRetrievalQuery] = useState('');
+  const [retrievalTopK, setRetrievalTopK] = useState(5);
+  const [retrievalResult, setRetrievalResult] = useState(null);
+  const [retrievalError, setRetrievalError] = useState('');
   const importPanelRef = useRef(null);
   const sourcesPanelRef = useRef(null);
   const firstSourceInputRef = useRef(null);
@@ -80,6 +85,13 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
       setShowImportForm(true);
     }
   }, [detail, viewMode]);
+
+  useEffect(() => {
+    setRetrievalQuery('');
+    setRetrievalTopK(5);
+    setRetrievalResult(null);
+    setRetrievalError('');
+  }, [selectedDbId]);
 
   useEffect(() => {
     if (!queryDbId && remote.knowledgeBases.length) {
@@ -236,6 +248,27 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
       return await api.buildIndex(selectedDbId, true);
     } finally {
       await refreshDetail();
+    }
+  }
+
+  async function testRetrieval() {
+    const query = retrievalQuery.trim();
+    if (!query) {
+      setRetrievalError('先输入一个用户会问的问题');
+      throw new Error('先输入一个用户会问的问题');
+    }
+    setRetrievalError('');
+    setRetrievalResult(null);
+    try {
+      const result = await api.testRetrieval(selectedDbId, {
+        query,
+        top_k: Number(retrievalTopK),
+      });
+      setRetrievalResult(result);
+      return result;
+    } catch (error) {
+      setRetrievalError(error.message);
+      throw error;
     }
   }
 
@@ -544,6 +577,19 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
             </Panel>
           </div>
 
+          {detailSummary.indexStatus === 'ready' ? (
+            <RetrievalTestPanel
+              query={retrievalQuery}
+              topK={retrievalTopK}
+              result={retrievalResult}
+              error={retrievalError}
+              isRunning={isActionRunning('retrieval-test')}
+              onQueryChange={setRetrievalQuery}
+              onTopKChange={setRetrievalTopK}
+              onRun={() => runLocalTask('retrieval-test', '测试召回中', testRetrieval)}
+            />
+          ) : null}
+
           {(detail?.sources?.length || detail?.chunks?.length) ? (
             <div className="detail-grid">
             <div className="detail-panel-anchor" ref={sourcesPanelRef}>
@@ -767,6 +813,86 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
         </Panel>
       </div>
     </div>
+  );
+}
+
+function RetrievalTestPanel({
+  query,
+  topK,
+  result,
+  error,
+  isRunning,
+  onQueryChange,
+  onTopKChange,
+  onRun,
+}) {
+  const hasQuery = query.trim().length > 0;
+  return (
+    <Panel className="retrieval-test-panel" title="检索召回测试">
+      <p className="current-task-desc">
+        输入一个用户会问的问题，只测试当前知识库的 Retrieve 会召回哪些 chunks，不会调用 LLM。
+      </p>
+      <div className="retrieval-test-form">
+        <Field label="Query" help="用真实用户可能会问的问题来测，能快速判断资料是否能被找回来。">
+          <div className="input-with-icon">
+            <Search size={16} />
+            <input
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              placeholder="输入一个用户会问的问题"
+            />
+          </div>
+        </Field>
+        <Field label="Top K" help="展示前几条命中的 chunks。">
+          <select value={topK} onChange={(event) => onTopKChange(Number(event.target.value))}>
+            <option value={3}>3</option>
+            <option value={5}>5</option>
+            <option value={10}>10</option>
+          </select>
+        </Field>
+      </div>
+
+      {error ? <div className="retrieval-error">{error}</div> : null}
+
+      <div className="current-task-footer">
+        <Button
+          className="current-task-primary"
+          icon={Search}
+          disabled={!hasQuery}
+          loading={isRunning}
+          loadingLabel="检索中"
+          onClick={onRun}
+        >
+          测试召回
+        </Button>
+      </div>
+
+      {result ? (
+        <div className="retrieval-results">
+          <div className="retrieval-results-head">
+            <strong>召回结果</strong>
+            <span>{result.results?.length || 0} / Top {result.top_k}</span>
+          </div>
+          {result.results?.length ? (
+            result.results.map((item) => (
+              <article className="retrieval-result-item" key={`${item.rank}-${item.chunk_index}-${item.source}`}>
+                <span className="retrieval-rank">#{item.rank}</span>
+                <div className="retrieval-result-content">
+                  <div className="retrieval-meta">
+                    <strong>{item.title_or_path || item.source || item.url || '未知来源'}</strong>
+                    {item.chunk_index !== null && item.chunk_index !== undefined ? <span>chunk {item.chunk_index}</span> : null}
+                  </div>
+                  <p>{item.content}</p>
+                  {item.url ? <small>{item.url}</small> : null}
+                </div>
+              </article>
+            ))
+          ) : (
+            <EmptyState title="没有召回到 chunk" body="可以换一个 Query，或者重新切分、补充资料后再测。" />
+          )}
+        </div>
+      ) : null}
+    </Panel>
   );
 }
 

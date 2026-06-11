@@ -932,6 +932,119 @@ select:focus {
   outline-offset: 2px;
 }
 
+.retrieval-test-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.retrieval-test-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px;
+  gap: 12px;
+  align-items: end;
+}
+
+.retrieval-error {
+  border: 1px solid #f1b9b8;
+  border-radius: 8px;
+  background: #fff7f7;
+  color: #a11515;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+  padding: 10px 12px;
+}
+
+.retrieval-results {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 12px;
+}
+
+.retrieval-results-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #1f2937;
+  font-size: 14px;
+}
+
+.retrieval-results-head span {
+  color: #617083;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.retrieval-result-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.retrieval-rank {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 999px;
+  background: #e9f2ff;
+  color: #2563a6;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.retrieval-result-content {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.retrieval-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.retrieval-meta strong {
+  overflow: hidden;
+  color: #1f2937;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.retrieval-meta span {
+  flex-shrink: 0;
+  color: #617083;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.retrieval-result-content p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  color: #4b5f76;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.retrieval-result-content small {
+  overflow-wrap: anywhere;
+  color: #718096;
+  font-size: 12px;
+}
+
 .next-step-card {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -2445,6 +2558,7 @@ pre {
   .deployment-layout,
   .two-column,
   .detail-grid,
+  .retrieval-test-form,
   .config-layout,
   .workflow-entry-layout,
   .workflow-layout,
