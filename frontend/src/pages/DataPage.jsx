@@ -35,6 +35,7 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
   const [queryTargetCount, setQueryTargetCount] = useState(10);
   const [queryName, setQueryName] = useState('生成的 Query 集');
   const [selectedQuerySetId, setSelectedQuerySetId] = useState('');
+  const [browserSessions, setBrowserSessions] = useState({});
 
   useEffect(() => {
     api.getConfig().then((config) => setChunk(config.chunk || chunk)).catch(() => {});
@@ -141,16 +142,24 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
       chunk_size: Number(chunk.chunk_size),
       chunk_overlap: Number(chunk.chunk_overlap),
     };
+    let firstError = null;
     for (const row of readyRows) {
-      if (row.file) {
-        await api.uploadFile(selectedDbId, row.file, options);
-      }
-      if (row.url.trim()) {
-        await api.importUrl(selectedDbId, row.url.trim(), options);
+      try {
+        if (row.file) {
+          await api.uploadFile(selectedDbId, row.file, options);
+        }
+        if (row.url.trim()) {
+          await api.importUrl(selectedDbId, row.url.trim(), options);
+        }
+      } catch (error) {
+        firstError = firstError || error;
       }
     }
     setRows([newSourceRow()]);
     await refreshDetail();
+    if (firstError) {
+      throw firstError;
+    }
   }
 
   async function buildIndex() {
@@ -172,6 +181,44 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
     }
     const result = await api.deleteSource(selectedDbId, source.id);
     await refreshDetail();
+    return result;
+  }
+
+  async function openBrowserForSource(source) {
+    if (!selectedDbId) {
+      throw new Error('请先选择 DB');
+    }
+    const result = await api.openSourceBrowserSession(selectedDbId, source.id);
+    setBrowserSessions((current) => ({ ...current, [source.id]: result.session_id }));
+    return result;
+  }
+
+  async function extractBrowserForSource(source) {
+    const sessionId = browserSessions[source.id];
+    if (!sessionId) {
+      throw new Error('请先打开浏览器处理这个 URL');
+    }
+    const result = await api.extractBrowserSession(sessionId);
+    setBrowserSessions((current) => {
+      const next = { ...current };
+      delete next[source.id];
+      return next;
+    });
+    await refreshDetail();
+    return result;
+  }
+
+  async function closeBrowserForSource(source) {
+    const sessionId = browserSessions[source.id];
+    if (!sessionId) {
+      return null;
+    }
+    const result = await api.closeBrowserSession(sessionId);
+    setBrowserSessions((current) => {
+      const next = { ...current };
+      delete next[source.id];
+      return next;
+    });
     return result;
   }
 
@@ -370,19 +417,48 @@ export function DataPage({ remote, runTask, initialSection = 'landing', navigati
             <Panel title="来源">
               {detail?.sources?.length ? (
                 <div className="table-list">
-                  {detail.sources.map((source) => (
-                    <div className="table-row" key={source.id}>
-                      <span>
-                        <strong>{source.name}</strong>
-                        <small>{source.source_type}</small>
-                        {source.error ? <small className="source-error">{source.error}</small> : null}
-                      </span>
-                      <div className="row-actions">
-                        <StatusPill status={source.status} />
-                        <IconButton className="danger" label="删除来源" icon={Trash2} onClick={() => runTask('删除来源中', () => deleteSource(source))} />
+                  {detail.sources.map((source) => {
+                    const sessionId = browserSessions[source.id];
+                    const needsBrowser = source.error_code === 'browser_challenge';
+                    return (
+                      <div className="table-row" key={source.id}>
+                        <span>
+                          <strong>{source.name}</strong>
+                          <small>{source.source_type}</small>
+                          {source.error ? <small className="source-error">{source.error}</small> : null}
+                          {needsBrowser && !sessionId ? (
+                            <small className="source-recovery-hint">
+                              页面需要验证码、登录或人工确认，可以打开独立浏览器处理。
+                            </small>
+                          ) : null}
+                          {sessionId ? (
+                            <small className="source-recovery-hint">
+                              等待你在浏览器中完成页面访问，完成后点击“提取正文”。
+                            </small>
+                          ) : null}
+                        </span>
+                        <div className="row-actions">
+                          {needsBrowser ? <span className="status-pill status-stale">需要浏览器处理</span> : <StatusPill status={source.status} />}
+                          {needsBrowser && !sessionId ? (
+                            <Button variant="secondary" onClick={() => runTask('打开浏览器中', () => openBrowserForSource(source))}>
+                              打开浏览器处理
+                            </Button>
+                          ) : null}
+                          {sessionId ? (
+                            <>
+                              <Button onClick={() => runTask('提取正文中', () => extractBrowserForSource(source))}>
+                                提取正文
+                              </Button>
+                              <Button variant="secondary" onClick={() => runTask('关闭浏览器中', () => closeBrowserForSource(source))}>
+                                关闭浏览器
+                              </Button>
+                            </>
+                          ) : null}
+                          <IconButton className="danger" label="删除来源" icon={Trash2} onClick={() => runTask('删除来源中', () => deleteSource(source))} />
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <EmptyState title="暂无来源" body="向当前 DB 添加一个 File 或 URL。" />

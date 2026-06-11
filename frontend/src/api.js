@@ -46,6 +46,12 @@ export const api = {
     }),
   deleteSource: (knowledgeBaseId, sourceId) =>
     request(`/api/knowledge-bases/${knowledgeBaseId}/sources/${sourceId}`, { method: 'DELETE' }),
+  openSourceBrowserSession: (knowledgeBaseId, sourceId) =>
+    request(`/api/knowledge-bases/${knowledgeBaseId}/sources/${sourceId}/browser-session`, { method: 'POST' }),
+  extractBrowserSession: (sessionId) =>
+    request(`/api/browser-sessions/${sessionId}/extract`, { method: 'POST' }),
+  closeBrowserSession: (sessionId) =>
+    request(`/api/browser-sessions/${sessionId}/close`, { method: 'POST' }),
   buildIndex: (knowledgeBaseId, overwrite = true) =>
     request(`/api/knowledge-bases/${knowledgeBaseId}/index`, {
       method: 'POST',

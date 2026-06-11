@@ -1649,9 +1649,16 @@ select:focus {
   overflow-wrap: anywhere;
 }
 
+.source-recovery-hint {
+  color: #2563a6 !important;
+  overflow-wrap: anywhere;
+}
+
 .row-actions {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
   flex-shrink: 0;
 }
