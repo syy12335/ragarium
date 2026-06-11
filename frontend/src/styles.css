@@ -82,24 +82,31 @@ nav {
   color: #ffffff;
 }
 
-.status-bar {
-  display: grid;
-  gap: 5px;
+.service-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   margin-top: auto;
   border: 1px solid #445468;
   border-radius: 8px;
   padding: 11px;
   background: #263241;
-}
-
-.status-bar span {
-  color: #aeb9c8;
-  font-size: 12px;
-}
-
-.status-bar strong {
+  color: #d7dee7;
   font-size: 13px;
-  overflow-wrap: anywhere;
+  font-weight: 800;
+}
+
+.service-status.online svg {
+  color: #74d680;
+}
+
+.service-status.offline {
+  border-color: #7f3b3b;
+  background: #3a2b2d;
+}
+
+.service-status.offline svg {
+  color: #fca5a5;
 }
 
 .workspace {
@@ -113,6 +120,63 @@ nav {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 18px;
+}
+
+.task-banner {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 40px;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  margin: -6px 0 18px;
+  padding: 9px 12px;
+  background: #ffffff;
+  color: #263445;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.task-banner.running {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.task-banner.success {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.task-banner.error {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.task-banner button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .topbar h1 {
@@ -2146,7 +2210,7 @@ pre {
   }
 
   .brand,
-  .status-bar {
+  .service-status {
     min-width: 190px;
   }
 

@@ -1,13 +1,19 @@
 import { useEffect, useState } from 'react';
 import {
+  AlertCircle,
   ArrowLeft,
   Bot,
+  CheckCircle2,
   Database,
   GitBranch,
   Home,
   ListChecks,
+  Loader2,
   RefreshCw,
   SlidersHorizontal,
+  Wifi,
+  WifiOff,
+  X,
 } from 'lucide-react';
 import { api } from './api.js';
 import { Button } from './components/ui.jsx';
@@ -58,22 +64,32 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('home');
   const [dataIntent, setDataIntent] = useState({ section: 'landing', key: 0 });
   const [returnContext, setReturnContext] = useState(null);
-  const [status, setStatus] = useState('就绪');
+  const [backendConnected, setBackendConnected] = useState(null);
+  const [taskState, setTaskState] = useState({ kind: 'idle', message: '' });
   const active = tabs.find((tab) => tab.id === activeTab) || tabs[0];
 
   useEffect(() => {
-    remote.refresh().catch((error) => setStatus(error.message));
+    remote.refresh()
+      .then(() => setBackendConnected(true))
+      .catch((error) => {
+        setBackendConnected(false);
+        setTaskState({ kind: 'error', message: error.message });
+      });
   }, []);
 
   async function runTask(label, task) {
-    setStatus(label);
+    setTaskState({ kind: 'running', message: label });
     try {
       const result = await task();
-      setStatus('完成');
       await remote.refresh();
+      setBackendConnected(true);
+      setTaskState({ kind: 'success', message: doneLabel(label) });
       return result;
     } catch (error) {
-      setStatus(error.message);
+      if (isConnectionError(error)) {
+        setBackendConnected(false);
+      }
+      setTaskState({ kind: 'error', message: error.message });
       return null;
     }
   }
@@ -128,9 +144,9 @@ export default function App() {
             );
           })}
         </nav>
-        <div className="status-bar">
-          <span>状态</span>
-          <strong>{status}</strong>
+        <div className={backendConnected === false ? 'service-status offline' : 'service-status online'}>
+          {backendConnected === false ? <WifiOff size={15} /> : <Wifi size={15} />}
+          <span>{backendConnected === false ? '连接失败' : '后端已连接'}</span>
         </div>
       </aside>
 
@@ -144,6 +160,7 @@ export default function App() {
             刷新
           </Button>
         </header>
+        <TaskBanner state={taskState} onClose={() => setTaskState({ kind: 'idle', message: '' })} />
 
         {activeTab !== 'home' && activeTab !== 'data' && returnContext ? (
           <div className="editor-header action-return-bar">
@@ -163,6 +180,35 @@ export default function App() {
         {activeTab === 'evaluation' ? <EvaluationPage remote={remote} runTask={runTask} onNavigate={navigate} /> : null}
         {activeTab === 'config' ? <ConfigPage runTask={runTask} /> : null}
       </main>
+    </div>
+  );
+}
+
+function doneLabel(label) {
+  if (label.endsWith('中')) {
+    return `${label.slice(0, -1)}完成`;
+  }
+  return `${label} 完成`;
+}
+
+function isConnectionError(error) {
+  return /failed to fetch|networkerror|load failed/i.test(error?.message || '');
+}
+
+function TaskBanner({ state, onClose }) {
+  if (!state || state.kind === 'idle') {
+    return null;
+  }
+  const Icon = state.kind === 'running' ? Loader2 : state.kind === 'success' ? CheckCircle2 : AlertCircle;
+  return (
+    <div className={`task-banner ${state.kind}`}>
+      <Icon className={state.kind === 'running' ? 'spin' : ''} size={17} />
+      <span>{state.message}</span>
+      {state.kind !== 'running' ? (
+        <button type="button" onClick={onClose} aria-label="关闭状态">
+          <X size={14} />
+        </button>
+      ) : null}
     </div>
   );
 }
