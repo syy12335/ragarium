@@ -65,6 +65,44 @@ class FakeEvalEngine:
         return FakeEvalResult(overall={"faithfulness": 1.0, "answer_relevancy": 0.9}, csv_path="fake.csv")
 
 
+class FakeBrowserSessionManager:
+    def __init__(self):
+        self.source = None
+        self.closed = []
+
+    def open_source(self, source):
+        self.source = source
+        return {
+            "session_id": "session-1",
+            "knowledge_base_id": source["knowledge_base_id"],
+            "source_id": source["id"],
+            "url": source["uri"],
+            "status": "open",
+        }
+
+    def extract(self, session_id):
+        assert session_id == "session-1"
+        return {
+            "session_id": session_id,
+            "knowledge_base_id": self.source["knowledge_base_id"],
+            "source_id": self.source["id"],
+            "url": self.source["uri"],
+            "parsed": ParsedDocument(
+                content="Chrome browser download page. Install Chrome and manage browser settings.",
+                metadata={
+                    "source": self.source["uri"],
+                    "url": self.source["uri"],
+                    "extension": ".html",
+                    "title": "Chrome",
+                },
+            ),
+        }
+
+    def close(self, session_id):
+        self.closed.append(session_id)
+        return {"session_id": session_id, "status": "closed"}
+
+
 def test_api_config_reports_env_status(tmp_path, monkeypatch):
     config_dir = tmp_path / "config"
     config_dir.mkdir()
@@ -235,6 +273,62 @@ def test_api_failed_url_import_updates_source_and_kb_status(tmp_path, monkeypatc
     assert "未获得可切分正文" in detail["index_error"]
     assert detail["chunks"] == []
     assert detail["sources"][0]["status"] == "failed"
+    assert detail["sources"][0]["error_code"] == "browser_challenge"
+
+
+def test_api_browser_session_extracts_failed_url_source(tmp_path):
+    store = ProductStore(tmp_path / "state.sqlite")
+    kb = store.create_knowledge_base("Docs")
+    source = store.create_source(
+        kb["id"],
+        source_type="url",
+        name="https://www.google.com/search?q=chrome",
+        uri="https://www.google.com/search?q=chrome",
+        status="failed",
+        error="浏览器已打开原页面，但未获得可切分正文",
+    )
+    store.update_source_status(
+        source["id"],
+        status="failed",
+        error=source["error"],
+        error_code="browser_challenge",
+    )
+    manager = FakeBrowserSessionManager()
+    client = TestClient(create_app(store=store, browser_session_manager=manager))
+
+    open_response = client.post(f"/api/knowledge-bases/{kb['id']}/sources/{source['id']}/browser-session")
+    assert open_response.status_code == 200
+    assert open_response.json()["session_id"] == "session-1"
+
+    extract_response = client.post("/api/browser-sessions/session-1/extract")
+    assert extract_response.status_code == 200
+    payload = extract_response.json()
+    assert payload["source"]["status"] == "ready"
+    assert payload["source"]["error"] is None
+    assert payload["source"]["error_code"] is None
+    assert payload["chunk_count"] >= 1
+    assert payload["knowledge_base"]["index_status"] == "stale"
+    assert store.list_chunks(kb["id"])[0]["content"].startswith("Chrome browser")
+    assert manager.closed == ["session-1"]
+
+
+def test_api_browser_session_rejects_invalid_source_and_session(tmp_path):
+    store = ProductStore(tmp_path / "state.sqlite")
+    kb = store.create_knowledge_base("Docs")
+    source = store.create_source(
+        kb["id"],
+        source_type="file",
+        name="doc.txt",
+        stored_path="/tmp/doc.txt",
+        status="failed",
+    )
+    client = TestClient(create_app(store=store))
+
+    open_response = client.post(f"/api/knowledge-bases/{kb['id']}/sources/{source['id']}/browser-session")
+    assert open_response.status_code == 404
+
+    close_response = client.post("/api/browser-sessions/missing/close")
+    assert close_response.status_code == 404
 
 
 def test_api_import_index_generate_and_eval(tmp_path):

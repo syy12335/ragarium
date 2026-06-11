@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from rag_eval.app_config import AppConfigService
 from rag_eval.eval_engine import EvalEngine, RagEvalRecord
-from rag_eval.ingestion import IngestionService
+from rag_eval.ingestion import BrowserSessionManager, IngestionService
 from rag_eval.query_generation import QueryGenerationService
 from rag_eval.storage import ProductStore
 from rag_eval.vector.vector_builder import VectorDatabaseBuilder
@@ -169,6 +169,7 @@ def create_app(
     vector_builder_factory: Optional[VectorBuilderFactory] = None,
     query_generator_factory: Optional[QueryGeneratorFactory] = None,
     eval_engine_factory: Optional[EvalEngineFactory] = None,
+    browser_session_manager: Optional[Any] = None,
     config_path: str = "config/application.yaml",
 ) -> FastAPI:
     state_root = _default_state_root()
@@ -180,6 +181,7 @@ def create_app(
         config_service=config_service,
     )
     workflow_engine = workflow_engine or WorkflowEngine()
+    browser_session_manager = browser_session_manager or BrowserSessionManager(state_root / "browser_profile")
 
     def default_vector_builder_factory() -> VectorDatabaseBuilder:
         return VectorDatabaseBuilder(config_path)
@@ -786,6 +788,56 @@ def create_app(
             kb["sources"] = remaining_sources
             kb["chunks"] = store.list_chunks(knowledge_base_id, limit=20)
             return {"deleted_source": source, "knowledge_base": kb}
+        except Exception as exc:
+            raise _http_error(exc)
+
+    @app.post("/api/knowledge-bases/{knowledge_base_id}/sources/{source_id}/browser-session")
+    def open_source_browser_session(knowledge_base_id: int, source_id: int) -> Dict[str, Any]:
+        try:
+            source = store.get_source(source_id)
+            if int(source["knowledge_base_id"]) != int(knowledge_base_id) or source.get("source_type") != "url":
+                raise KeyError(f"url source not found: {source_id}")
+            return browser_session_manager.open_source(source)
+        except Exception as exc:
+            raise _http_error(exc)
+
+    @app.post("/api/browser-sessions/{session_id}/extract")
+    def extract_browser_session(session_id: str) -> Dict[str, Any]:
+        try:
+            extracted = browser_session_manager.extract(session_id)
+            knowledge_base_id = int(extracted["knowledge_base_id"])
+            source_id = int(extracted["source_id"])
+            source = ingestion_service.update_url_source_from_parsed(
+                knowledge_base_id,
+                source_id,
+                extracted["parsed"],
+            )
+            store.update_knowledge_base_index_status(
+                knowledge_base_id,
+                status="stale",
+                error=None,
+            )
+            kb = store.get_knowledge_base(knowledge_base_id)
+            kb["sources"] = store.list_sources(knowledge_base_id)
+            kb["chunks"] = store.list_chunks(knowledge_base_id, limit=20)
+            try:
+                browser_session_manager.close(session_id)
+            except Exception:
+                pass
+            return {
+                "session_id": session_id,
+                "source": source,
+                "chunk_count": source.get("chunk_count", 0),
+                "knowledge_base": kb,
+                "status": "ready",
+            }
+        except Exception as exc:
+            raise _http_error(exc)
+
+    @app.post("/api/browser-sessions/{session_id}/close")
+    def close_browser_session(session_id: str) -> Dict[str, Any]:
+        try:
+            return browser_session_manager.close(session_id)
         except Exception as exc:
             raise _http_error(exc)
 
