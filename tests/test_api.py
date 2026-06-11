@@ -116,10 +116,10 @@ def test_api_failed_url_import_updates_source_and_kb_status(tmp_path, monkeypatc
     )
 
     assert response.status_code == 400
-    assert "浏览器渲染或登录态" in response.json()["detail"]
+    assert "未获得可切分正文" in response.json()["detail"]
     detail = client.get(f"/api/knowledge-bases/{kb['id']}").json()
     assert detail["index_status"] == "failed"
-    assert "浏览器渲染或登录态" in detail["index_error"]
+    assert "未获得可切分正文" in detail["index_error"]
     assert detail["chunks"] == []
     assert detail["sources"][0]["status"] == "failed"
 

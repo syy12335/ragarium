@@ -6,7 +6,7 @@
 
 ## 你可以用它做什么
 
-- 导入自己的资料包：支持 `.txt`、`.md`、`.html`、`.pdf`、`.docx` 和普通静态单页 URL。
+- 导入自己的资料包：支持 `.txt`、`.md`、`.html`、`.pdf`、`.docx` 和单页 URL。
 - 管理本地知识库 DB：资料会解析、切分成 chunks，并写入本地 Chroma 向量库。
 - 搭建 Workflow：用画布保存自己的 Graph，也可以从空白、离线建库、RAG、评测模板开始。
 - 生成 query-only 评测集：输入 3-5 个示例 Query，模型会结合知识库内容生成更多 Query。
@@ -23,6 +23,7 @@
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+.venv/bin/python -m playwright install chromium
 ```
 
 安装前端依赖：
@@ -109,7 +110,7 @@ http://127.0.0.1:5173/
 说明：
 
 - `.doc` 暂不支持，请先转成 `.docx`。
-- URL 默认做静态 HTML 抓取；动态页面、登录页或需要浏览器渲染的页面可能无法解析正文。
+- URL 会用独立浏览器打开原页面并提取可见正文；登录页、验证码页或强反爬页面可能失败。
 - Chunk size / overlap 放在「高级设置」里，默认值通常可以直接使用。
 
 ### 3. 搭建 Workflow

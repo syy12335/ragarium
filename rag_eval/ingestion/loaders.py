@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import urllib.request
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
@@ -18,6 +17,14 @@ URL_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
 }
+PLAYWRIGHT_INSTALL_HINT = (
+    "浏览器渲染依赖未就绪；请先执行 "
+    ".venv/bin/python -m playwright install chromium"
+)
+PLAYWRIGHT_DEPENDENCY_HINT = (
+    "浏览器渲染依赖未安装；请先运行 pip install -r requirements.txt，"
+    "然后执行 .venv/bin/python -m playwright install chromium"
+)
 
 
 @dataclass
@@ -131,6 +138,52 @@ def _parse_docx(path: Path, metadata: Dict[str, Any]) -> ParsedDocument:
     return ParsedDocument(content=normalize_text("\n".join(parts)), metadata=dict(metadata))
 
 
+def _load_playwright():
+    try:
+        from playwright.sync_api import Error as PlaywrightError
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise RuntimeError(PLAYWRIGHT_DEPENDENCY_HINT) from exc
+    return sync_playwright, PlaywrightError, PlaywrightTimeoutError
+
+
+def _render_url_text(url: str, timeout: int = 20) -> tuple[str, str]:
+    sync_playwright, playwright_error, playwright_timeout_error = _load_playwright()
+    timeout_ms = timeout * 1000
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            try:
+                page = browser.new_page(
+                    user_agent=URL_HEADERS["User-Agent"],
+                    locale="zh-CN",
+                    extra_http_headers={
+                        "Accept-Language": URL_HEADERS["Accept-Language"],
+                    },
+                )
+                try:
+                    page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                except playwright_timeout_error:
+                    pass
+                try:
+                    page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 5000))
+                except playwright_timeout_error:
+                    pass
+                title = page.title()
+                text = page.evaluate("() => document.body ? document.body.innerText : ''")
+                return title or "", normalize_text(text or "")
+            finally:
+                browser.close()
+    except RuntimeError:
+        raise
+    except playwright_error as exc:
+        message = str(exc)
+        if "Executable doesn't exist" in message or "playwright install" in message:
+            raise RuntimeError(PLAYWRIGHT_INSTALL_HINT) from exc
+        raise RuntimeError(f"浏览器渲染 URL 失败：{message}") from exc
+
+
 def parse_file(path: str | Path, original_name: Optional[str] = None) -> ParsedDocument:
     file_path = Path(path)
     suffix = file_path.suffix.lower()
@@ -161,16 +214,6 @@ def parse_file(path: str | Path, original_name: Optional[str] = None) -> ParsedD
 
 
 def parse_url(url: str, timeout: int = 20) -> ParsedDocument:
-    request = urllib.request.Request(
-        url,
-        headers=URL_HEADERS,
-    )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        raw = response.read()
-        content_type = response.headers.get("content-type", "")
-    charset_match = re.search(r"charset=([^;]+)", content_type, flags=re.I)
-    encoding = charset_match.group(1).strip() if charset_match else "utf-8"
-    html = raw.decode(encoding, errors="replace")
-    parsed = _parse_html(html, {"source": url, "url": url, "extension": ".html"})
-    parsed.metadata.setdefault("title", url)
-    return parsed
+    title, text = _render_url_text(url, timeout=timeout)
+    metadata = {"source": url, "url": url, "extension": ".html", "title": title or url}
+    return ParsedDocument(content=text, metadata=metadata)

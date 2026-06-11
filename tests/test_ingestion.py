@@ -32,19 +32,10 @@ def test_parse_legacy_doc_is_rejected(tmp_path):
 
 
 def test_parse_url_with_mocked_response(monkeypatch):
-    class FakeResponse:
-        headers = {"content-type": "text/html; charset=utf-8"}
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def read(self):
-            return b"<html><title>Demo</title><body><h1>Hello</h1><p>RAG docs</p></body></html>"
-
-    monkeypatch.setattr("urllib.request.urlopen", lambda request, timeout=20: FakeResponse())
+    monkeypatch.setattr(
+        "rag_eval.ingestion.loaders._render_url_text",
+        lambda url, timeout=20: ("Demo", "Hello\nRAG docs"),
+    )
 
     parsed = parse_url("https://example.com/demo")
 
@@ -53,31 +44,14 @@ def test_parse_url_with_mocked_response(monkeypatch):
     assert "RAG docs" in parsed.content
 
 
-def test_google_search_url_fetches_original_html(monkeypatch):
-    class FakeResponse:
-        headers = {"content-type": "text/html; charset=utf-8"}
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def read(self):
-            return (
-                b"<html><title>Google Search</title><body>"
-                b"<main><h1>Google Search</h1><p>If you're having trouble accessing Google Search, "
-                b"please click here, or send feedback.</p></main>"
-                b"</body></html>"
-            )
-
+def test_google_search_url_renders_original_url(monkeypatch):
     seen = {}
 
-    def fake_urlopen(request, timeout=20):
-        seen["url"] = request.full_url
-        return FakeResponse()
+    def fake_render(url, timeout=20):
+        seen["url"] = url
+        return "Google Search", "Google Search\nRAG Eval result"
 
-    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("rag_eval.ingestion.loaders._render_url_text", fake_render)
 
     parsed = parse_url("https://www.google.com/search?q=rag%20eval")
 
@@ -88,6 +62,16 @@ def test_google_search_url_fetches_original_html(monkeypatch):
     assert parsed.metadata["title"] == "Google Search"
     assert "Google Search" in parsed.content
     assert "search_query" not in parsed.metadata
+
+
+def test_parse_url_reports_missing_browser(monkeypatch):
+    def fail_load_playwright():
+        raise RuntimeError("浏览器渲染依赖未就绪；请先执行 .venv/bin/python -m playwright install chromium")
+
+    monkeypatch.setattr("rag_eval.ingestion.loaders._load_playwright", fail_load_playwright)
+
+    with pytest.raises(RuntimeError, match="playwright install chromium"):
+        parse_url("https://example.com/demo")
 
 
 def test_ingestion_service_persists_chunks(tmp_path):
@@ -130,12 +114,12 @@ def test_ingestion_service_rejects_url_without_text_chunks(tmp_path, monkeypatch
 
     service = IngestionService(store, tmp_path / "uploads", chunk_size=100, chunk_overlap=0)
 
-    with pytest.raises(ValueError, match="未解析到可切分文本"):
+    with pytest.raises(ValueError, match="未获得可切分正文"):
         service.ingest_url(kb["id"], "https://example.com/app")
 
     sources = store.list_sources(kb["id"])
     assert sources[0]["status"] == "failed"
-    assert "未解析到可切分文本" in sources[0]["error"]
+    assert "未获得可切分正文" in sources[0]["error"]
     assert store.list_chunks(kb["id"]) == []
 
 
@@ -153,12 +137,33 @@ def test_ingestion_service_rejects_js_redirect_shell(tmp_path, monkeypatch):
 
     service = IngestionService(store, tmp_path / "uploads", chunk_size=100, chunk_overlap=0)
 
-    with pytest.raises(ValueError, match="浏览器渲染或登录态"):
+    with pytest.raises(ValueError, match="未获得可切分正文"):
         service.ingest_url(kb["id"], "https://example.com/app")
 
     sources = store.list_sources(kb["id"])
     assert sources[0]["status"] == "failed"
-    assert "浏览器渲染或登录态" in sources[0]["error"]
+    assert "未获得可切分正文" in sources[0]["error"]
+    assert store.list_chunks(kb["id"]) == []
+
+
+def test_ingestion_service_rejects_browser_challenge_page(tmp_path, monkeypatch):
+    store = ProductStore(tmp_path / "state.sqlite")
+    kb = store.create_knowledge_base("Docs")
+
+    monkeypatch.setattr(
+        "rag_eval.ingestion.service.parse_url",
+        lambda url: ParsedDocument(
+            content="关于此网页 我们的系统检测到您的计算机网络中存在异常流量。此网页用于确认这些请求是由您而不是自动程序发出的。",
+            metadata={"source": url, "url": url, "extension": ".html"},
+        ),
+    )
+
+    service = IngestionService(store, tmp_path / "uploads", chunk_size=200, chunk_overlap=0)
+
+    with pytest.raises(ValueError, match="未获得可切分正文"):
+        service.ingest_url(kb["id"], "https://www.google.com/search?q=good")
+
+    assert store.list_sources(kb["id"])[0]["status"] == "failed"
     assert store.list_chunks(kb["id"]) == []
 
 

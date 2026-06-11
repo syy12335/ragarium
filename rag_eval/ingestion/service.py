@@ -10,7 +10,7 @@ from rag_eval.storage import ProductStore
 from .chunking import chunk_document
 from .loaders import ParsedDocument, parse_file, parse_url
 
-UNREADABLE_SOURCE_ERROR = "未解析到可切分文本；该页面可能需要浏览器渲染或登录态，当前静态抓取无法解析正文"
+UNREADABLE_SOURCE_ERROR = "浏览器已打开原页面，但未获得可切分正文；可能是登录、验证码、反爬或页面无正文"
 BLOCKED_PAGE_MARKERS = (
     "trouble accessing google search",
     "enablejs",
@@ -20,6 +20,17 @@ BLOCKED_PAGE_MARKERS = (
     "需要启用 javascript",
     "login required",
     "please log in",
+    "sign in",
+    "captcha",
+    "are you a robot",
+    "verify you are a human",
+    "unusual traffic",
+    "detected unusual traffic",
+    "异常流量",
+    "自动程序",
+    "验证码",
+    "人机验证",
+    "请先登录",
 )
 SHORT_SHELL_MARKERS = (
     *BLOCKED_PAGE_MARKERS,
