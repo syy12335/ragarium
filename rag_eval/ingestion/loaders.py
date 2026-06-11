@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Dict, Optional
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".html", ".htm", ".pdf", ".docx"}
@@ -24,6 +25,18 @@ PLAYWRIGHT_INSTALL_HINT = (
 PLAYWRIGHT_DEPENDENCY_HINT = (
     "浏览器渲染依赖未安装；请先运行 pip install -r requirements.txt，"
     "然后执行 .venv/bin/python -m playwright install chromium"
+)
+GOOGLE_CHALLENGE_MARKERS = (
+    "trouble accessing google search",
+    "unusual traffic",
+    "detected unusual traffic",
+    "about this page",
+    "are you a robot",
+    "captcha",
+    "异常流量",
+    "自动程序",
+    "验证码",
+    "人机验证",
 )
 
 
@@ -153,7 +166,10 @@ def _render_url_text(url: str, timeout: int = 20) -> tuple[str, str]:
     timeout_ms = timeout * 1000
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True)
+            browser = playwright.chromium.launch(
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
             try:
                 page = browser.new_page(
                     user_agent=URL_HEADERS["User-Agent"],
@@ -161,6 +177,9 @@ def _render_url_text(url: str, timeout: int = 20) -> tuple[str, str]:
                     extra_http_headers={
                         "Accept-Language": URL_HEADERS["Accept-Language"],
                     },
+                )
+                page.add_init_script(
+                    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
                 )
                 try:
                     page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
@@ -182,6 +201,45 @@ def _render_url_text(url: str, timeout: int = 20) -> tuple[str, str]:
         if "Executable doesn't exist" in message or "playwright install" in message:
             raise RuntimeError(PLAYWRIGHT_INSTALL_HINT) from exc
         raise RuntimeError(f"浏览器渲染 URL 失败：{message}") from exc
+
+
+def _is_google_search_url(url: str) -> bool:
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    return (
+        parsed.scheme in {"http", "https"}
+        and (host == "google.com" or host.endswith(".google.com"))
+        and parsed.path.rstrip("/") == "/search"
+        and bool(parse_qs(parsed.query).get("q"))
+    )
+
+
+def _looks_like_google_challenge(text: str) -> bool:
+    normalized = normalize_text(text).lower()
+    return any(marker in normalized for marker in GOOGLE_CHALLENGE_MARKERS)
+
+
+def _google_lightweight_search_url(url: str) -> str:
+    parsed = urlparse(url)
+    query = parse_qs(parsed.query)
+    search_text = (query.get("q") or [""])[0]
+    params = {
+        "q": search_text,
+        "hl": (query.get("hl") or ["zh-CN"])[0],
+        "gbv": "1",
+        "pws": "0",
+        "num": (query.get("num") or ["10"])[0],
+    }
+    return urlunparse(
+        (
+            parsed.scheme or "https",
+            parsed.netloc or "www.google.com",
+            "/search",
+            "",
+            urlencode(params),
+            "",
+        )
+    )
 
 
 def parse_file(path: str | Path, original_name: Optional[str] = None) -> ParsedDocument:
@@ -216,4 +274,11 @@ def parse_file(path: str | Path, original_name: Optional[str] = None) -> ParsedD
 def parse_url(url: str, timeout: int = 20) -> ParsedDocument:
     title, text = _render_url_text(url, timeout=timeout)
     metadata = {"source": url, "url": url, "extension": ".html", "title": title or url}
+    if _is_google_search_url(url) and _looks_like_google_challenge(text):
+        rendered_url = _google_lightweight_search_url(url)
+        if rendered_url != url:
+            fallback_title, fallback_text = _render_url_text(rendered_url, timeout=timeout)
+            title, text = fallback_title, fallback_text
+            metadata["title"] = title or metadata["title"]
+            metadata["rendered_url"] = rendered_url
     return ParsedDocument(content=text, metadata=metadata)

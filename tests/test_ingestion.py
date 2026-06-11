@@ -64,6 +64,34 @@ def test_google_search_url_renders_original_url(monkeypatch):
     assert "search_query" not in parsed.metadata
 
 
+def test_google_search_url_retries_google_lightweight_page_on_challenge(monkeypatch):
+    seen = []
+
+    def fake_render(url, timeout=20):
+        seen.append(url)
+        if len(seen) == 1:
+            return "关于此网页", "关于此网页 我们的系统检测到您的计算机网络中存在异常流量。"
+        return "1 - Google 搜索", "1 - 維基百科，自由的百科全書\n数学中的数字 1。"
+
+    monkeypatch.setattr("rag_eval.ingestion.loaders._render_url_text", fake_render)
+
+    original_url = "https://www.google.com/search?q=1&sourceid=chrome&ie=UTF-8"
+    parsed = parse_url(original_url)
+
+    assert seen[0] == original_url
+    assert seen[1].startswith("https://www.google.com/search?")
+    assert "q=1" in seen[1]
+    assert "gbv=1" in seen[1]
+    assert "pws=0" in seen[1]
+    assert "duckduckgo" not in "\n".join(seen)
+    assert parsed.metadata["url"] == original_url
+    assert parsed.metadata["source"] == original_url
+    assert parsed.metadata["rendered_url"] == seen[1]
+    assert parsed.metadata["title"] == "1 - Google 搜索"
+    assert "維基百科" in parsed.content
+    assert "search_query" not in parsed.metadata
+
+
 def test_parse_url_reports_missing_browser(monkeypatch):
     def fail_load_playwright():
         raise RuntimeError("浏览器渲染依赖未就绪；请先执行 .venv/bin/python -m playwright install chromium")
