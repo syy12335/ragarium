@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { flushSync } from 'react-dom';
 import {
   AlertCircle,
   ArrowLeft,
@@ -63,6 +64,7 @@ export default function App() {
   const remote = useRemoteState();
   const [activeTab, setActiveTab] = useState('home');
   const [dataIntent, setDataIntent] = useState({ section: 'landing', key: 0 });
+  const [configIntent, setConfigIntent] = useState(null);
   const [returnContext, setReturnContext] = useState(null);
   const [backendConnected, setBackendConnected] = useState(null);
   const [taskState, setTaskState] = useState({ kind: 'idle', message: '' });
@@ -78,7 +80,10 @@ export default function App() {
   }, []);
 
   async function runTask(label, task) {
-    setTaskState({ kind: 'running', message: label });
+    flushSync(() => {
+      setTaskState({ kind: 'running', message: label });
+    });
+    await waitForPaint();
     try {
       const result = await task();
       await remote.refresh();
@@ -110,6 +115,11 @@ export default function App() {
     }
     if (tabId === 'data') {
       setDataIntent({ section: 'landing', key: Date.now() });
+    }
+    if (tabId === 'config') {
+      setConfigIntent(options.intent ? { ...options.intent, key: Date.now() } : null);
+    } else if (tabId !== 'data') {
+      setConfigIntent(null);
     }
     setActiveTab(tabId);
   }
@@ -175,13 +185,30 @@ export default function App() {
         ) : null}
 
         {activeTab === 'home' ? <HomePage remote={remote} onNavigate={navigate} runTask={runTask} /> : null}
-        {activeTab === 'data' ? <DataPage remote={remote} runTask={runTask} initialSection={dataIntent.section} navigationKey={dataIntent.key} /> : null}
+        {activeTab === 'data' ? (
+          <DataPage
+            remote={remote}
+            runTask={runTask}
+            initialSection={dataIntent.section}
+            navigationKey={dataIntent.key}
+            onNavigate={navigate}
+          />
+        ) : null}
         {activeTab === 'workflow' ? <WorkflowPage remote={remote} runTask={runTask} /> : null}
         {activeTab === 'evaluation' ? <EvaluationPage remote={remote} runTask={runTask} onNavigate={navigate} /> : null}
-        {activeTab === 'config' ? <ConfigPage runTask={runTask} /> : null}
+        {activeTab === 'config' ? <ConfigPage runTask={runTask} intent={configIntent} /> : null}
       </main>
     </div>
   );
+}
+
+function waitForPaint() {
+  if (typeof window === 'undefined' || !window.requestAnimationFrame) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
 }
 
 function doneLabel(label) {

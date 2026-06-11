@@ -122,7 +122,7 @@ function ensureProviders(configProviders = {}) {
   return entries.map(([key, value], index) => providerRow(key, value, index));
 }
 
-export function ConfigPage({ runTask }) {
+export function ConfigPage({ runTask, intent = null }) {
   const [providers, setProviders] = useState([]);
   const [roles, setRoles] = useState(defaultRoles);
   const [chunk, setChunk] = useState({ chunk_size: 900, chunk_overlap: 120 });
@@ -131,10 +131,24 @@ export function ConfigPage({ runTask }) {
   const [editingProvider, setEditingProvider] = useState(null);
   const [editingRole, setEditingRole] = useState(null);
   const [editingChunk, setEditingChunk] = useState(null);
+  const [handledIntentKey, setHandledIntentKey] = useState('');
 
   useEffect(() => {
     loadConfig().catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!intent || intent.type !== 'openProvider' || !providers.length) {
+      return;
+    }
+    const key = `${intent.key || ''}:${intent.type}:${intent.providerKey || ''}`;
+    if (handledIntentKey === key) {
+      return;
+    }
+    const provider = providers.find((item) => item.key === intent.providerKey) || providers[0];
+    editProvider(provider);
+    setHandledIntentKey(key);
+  }, [intent, providers, handledIntentKey]);
 
   async function loadConfig() {
     const config = await api.getConfig();
