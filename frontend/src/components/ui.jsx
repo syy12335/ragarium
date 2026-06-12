@@ -46,7 +46,7 @@ export function Panel({ title, actions, children, className = '' }) {
 
 export function HelpDot({ text }) {
   return (
-    <span className="help-dot" title={text} aria-label={text}>
+    <span className="help-dot" data-tooltip={text} aria-label={text} tabIndex={0}>
       ?
     </span>
   );

@@ -20,7 +20,8 @@ import {
   WandSparkles,
 } from 'lucide-react';
 import { api } from '../api.js';
-import { Button, EmptyState, Field, Panel, StatusPill } from '../components/ui.jsx';
+import { Button, EmptyState, Field, HelpDot, Panel, StatusPill } from '../components/ui.jsx';
+import { resolveDefaultMetricNames, resolveMetricSpecs } from '../evalMetrics.js';
 import { buildNode, nodeCatalog, nodeMeta } from '../workflowNodes.js';
 
 const DEFAULT_TEMPLATE_ID = 'blank';
@@ -1010,6 +1011,19 @@ function NodeInspector({ node, remote, onChange, onDelete, onRunNode }) {
   const data = node.data || {};
   const numberValue = (key, fallback) => Number(data[key] ?? fallback);
   const examplesValue = Array.isArray(data.examples) ? data.examples.join('\n') : (data.examples || '');
+  const metricSpecs = resolveMetricSpecs(remote);
+  const defaultMetricNames = resolveDefaultMetricNames(remote);
+  const selectedMetricNames = Array.isArray(data.metricNames) && data.metricNames.length
+    ? data.metricNames
+    : defaultMetricNames;
+
+  function toggleMetric(name) {
+    const next = selectedMetricNames.includes(name)
+      ? selectedMetricNames.filter((item) => item !== name)
+      : [...selectedMetricNames, name];
+    onChange('metricNames', next.length ? next : selectedMetricNames);
+    onChange('metricPreset', 'custom');
+  }
 
   return (
     <div className="node-inspector">
@@ -1194,11 +1208,15 @@ function NodeInspector({ node, remote, onChange, onDelete, onRunNode }) {
 
       {node.type === 'ragas_eval' ? (
         <>
-          <Field label="Metric preset" help="决定使用哪组 RAGAS 指标；query-only 数据默认使用不依赖标准答案的 reference_free。">
-            <select value={data.metricPreset || 'reference_free'} onChange={(event) => onChange('metricPreset', event.target.value)}>
-              <option value="reference_free">reference_free</option>
-            </select>
-          </Field>
+          <WorkflowMetricSelector
+            metrics={metricSpecs}
+            selected={selectedMetricNames}
+            onToggle={toggleMetric}
+            onReset={() => {
+              onChange('metricNames', defaultMetricNames);
+              onChange('metricPreset', 'reference_free');
+            }}
+          />
           <Field label="数量限制" help="限制本次评测使用多少条 Query；调试时可先少量跑，正式评测留空跑全部。">
             <input value={data.limit || ''} onChange={(event) => onChange('limit', event.target.value)} placeholder="全部" />
           </Field>
@@ -1209,6 +1227,49 @@ function NodeInspector({ node, remote, onChange, onDelete, onRunNode }) {
         <EndOutputEditor outputs={Array.isArray(data.outputs) ? data.outputs : []} onChange={(outputs) => onChange('outputs', outputs)} />
       ) : null}
     </div>
+  );
+}
+
+function WorkflowMetricSelector({ metrics, selected, onToggle, onReset }) {
+  const selectedLabels = selected.join(' / ');
+  return (
+    <details className="advanced-section workflow-metric-section">
+      <summary>
+        <span>RAGAS 指标</span>
+        <small>{selectedLabels}</small>
+      </summary>
+      <div className="metric-selector">
+        <div className="metric-selector-head">
+          <strong>选择本节点要运行的指标</strong>
+          <button type="button" className="text-action-button" onClick={onReset}>
+            恢复默认
+          </button>
+        </div>
+        <div className="metric-option-list compact">
+          {metrics.map((metric) => {
+            const disabled = metric.requires_reference;
+            return (
+              <label key={metric.name} className={`metric-option ${disabled ? 'disabled' : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={selected.includes(metric.name)}
+                  disabled={disabled}
+                  onChange={() => onToggle(metric.name)}
+                />
+                <span>
+                  <strong>
+                    {metric.label}
+                    <HelpDot text={metric.description} />
+                  </strong>
+                  <small>{disabled ? `${metric.name} · 需要 reference` : `${metric.name} · query-only 可用`}</small>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+        <p className="muted-copy">当前评测集是 query-only；需要 reference 的指标会在支持标准答案后开放。</p>
+      </div>
+    </details>
   );
 }
 

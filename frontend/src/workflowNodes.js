@@ -68,7 +68,12 @@ export const nodeCatalog = [
     type: 'ragas_eval',
     label: 'RAGAS Eval',
     caption: '消费 Answer 结果评分',
-    defaults: { label: 'RAGAS Eval', metricPreset: 'reference_free', limit: '' },
+    defaults: {
+      label: 'RAGAS Eval',
+      metricPreset: 'reference_free',
+      metricNames: ['faithfulness', 'answer_relevancy', 'context_utilization', 'summary_score'],
+      limit: '',
+    },
   },
   {
     type: 'end',

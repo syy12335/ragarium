@@ -98,6 +98,7 @@ export const api = {
   generateQuerySet: (payload) =>
     request('/api/query-sets/generate', { method: 'POST', body: JSON.stringify(payload) }),
   listEvalRuns: () => request('/api/eval-runs'),
+  listEvalMetrics: () => request('/api/eval-metrics'),
   createEvalRun: (payload) =>
     request('/api/eval-runs', { method: 'POST', body: JSON.stringify(payload) }),
   startLocalDeployment: () => request('/api/deployment/local/start', { method: 'POST' }),

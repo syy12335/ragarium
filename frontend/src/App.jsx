@@ -37,18 +37,21 @@ function useRemoteState() {
   const [workflows, setWorkflows] = useState([]);
   const [querySets, setQuerySets] = useState([]);
   const [evalRuns, setEvalRuns] = useState([]);
+  const [evalMetrics, setEvalMetrics] = useState({ metrics: [], default_metric_names: [] });
 
   async function refresh() {
-    const [kb, wf, qs, er] = await Promise.all([
+    const [kb, wf, qs, er, em] = await Promise.all([
       api.listKnowledgeBases(),
       api.listWorkflows(),
       api.listQuerySets(),
       api.listEvalRuns(),
+      api.listEvalMetrics().catch(() => ({ metrics: [], default_metric_names: [] })),
     ]);
     setKnowledgeBases(kb);
     setWorkflows(wf);
     setQuerySets(qs);
     setEvalRuns(er);
+    setEvalMetrics(em);
   }
 
   return {
@@ -56,6 +59,7 @@ function useRemoteState() {
     workflows,
     querySets,
     evalRuns,
+    evalMetrics,
     refresh,
   };
 }

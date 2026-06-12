@@ -1319,8 +1319,93 @@ select:focus {
   gap: 8px;
 }
 
+.advanced-section {
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  background: #fbfdff;
+}
+
+.advanced-section summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  color: #1f2937;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.advanced-section summary small {
+  color: #637286;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.metric-selector {
+  display: grid;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.metric-selector-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.metric-option-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 8px;
+}
+
+.metric-option-list.compact {
+  grid-template-columns: 1fr;
+}
+
+.metric-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #ffffff;
+}
+
+.metric-option.disabled {
+  opacity: 0.62;
+}
+
+.metric-option input {
+  margin-top: 3px;
+}
+
+.metric-option > span,
+.metric-option strong {
+  display: grid;
+  gap: 3px;
+}
+
+.metric-option strong {
+  grid-auto-flow: column;
+  align-items: center;
+  justify-content: start;
+  gap: 6px;
+}
+
+.metric-option small {
+  color: #637286;
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .eval-metric-pill {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
   border: 1px solid #d9e2ec;
@@ -1329,7 +1414,7 @@ select:focus {
   background: #f8fafc;
 }
 
-.eval-metric-pill span {
+.eval-metric-pill > span {
   color: #637286;
   font-size: 12px;
   font-weight: 700;
@@ -1337,6 +1422,18 @@ select:focus {
 
 .eval-metric-pill strong {
   font-size: 15px;
+}
+
+.metric-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.metric-label > span {
+  color: #637286;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .eval-sample-section {
@@ -1386,7 +1483,10 @@ select:focus {
   gap: 6px;
 }
 
-.eval-sample-metrics span {
+.eval-sample-metrics > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border-radius: 999px;
   padding: 4px 8px;
   background: #eef6ff;
@@ -1583,9 +1683,11 @@ select:focus {
 }
 
 .help-dot {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
   width: 18px;
   height: 18px;
   border: 1px solid #b8c4d2;
@@ -1595,6 +1697,57 @@ select:focus {
   font-size: 12px;
   font-weight: 800;
   cursor: help;
+}
+
+.help-dot::after {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  z-index: 40;
+  width: max-content;
+  max-width: 280px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #1f2937;
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgb(15 23 42 / 18%);
+  content: attr(data-tooltip);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+  opacity: 0;
+  pointer-events: none;
+  text-align: left;
+  transform: translate(-50%, 4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+  white-space: normal;
+}
+
+.help-dot::before {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 2px);
+  z-index: 41;
+  border: 6px solid transparent;
+  border-top-color: #1f2937;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transition: opacity 120ms ease;
+}
+
+.help-dot:hover::after,
+.help-dot:focus-visible::after,
+.help-dot:hover::before,
+.help-dot:focus-visible::before {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.help-dot:hover::before,
+.help-dot:focus-visible::before {
+  transform: translateX(-50%);
 }
 
 .chunk-bar,

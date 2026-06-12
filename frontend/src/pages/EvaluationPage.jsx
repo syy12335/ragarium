@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Play, WandSparkles } from 'lucide-react';
 import { api } from '../api.js';
-import { Button, EmptyState, Field, Panel, StatusPill } from '../components/ui.jsx';
+import { Button, EmptyState, Field, HelpDot, Panel, StatusPill } from '../components/ui.jsx';
+import { FALLBACK_DEFAULT_METRICS, resolveDefaultMetricNames, resolveMetricSpecs } from '../evalMetrics.js';
 
 export function EvaluationPage({ remote, runTask, onNavigate }) {
   const [querySetId, setQuerySetId] = useState('');
   const [workflowId, setWorkflowId] = useState('');
   const [limit, setLimit] = useState('');
+  const [selectedMetricNames, setSelectedMetricNames] = useState(FALLBACK_DEFAULT_METRICS);
   const [activeRun, setActiveRun] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
 
@@ -24,9 +26,28 @@ export function EvaluationPage({ remote, runTask, onNavigate }) {
   );
   const hasQuerySets = remote.querySets.length > 0;
   const visibleRuns = activeRun ? [activeRun, ...remote.evalRuns] : remote.evalRuns;
+  const metricSpecs = resolveMetricSpecs(remote);
+  const defaultMetricNames = resolveDefaultMetricNames(remote);
+  const metricsByName = useMemo(
+    () => Object.fromEntries(metricSpecs.map((spec) => [spec.name, spec])),
+    [metricSpecs],
+  );
+  const hasReference = Boolean(querySet?.has_reference || querySet?.reference_count);
+  const selectedMetricSummary = selectedMetricNames
+    .map((name) => metricsByName[name]?.label || name)
+    .join(' / ');
 
   function dbName(id) {
     return remote.knowledgeBases.find((db) => String(db.id) === String(id))?.name || `DB #${id}`;
+  }
+
+  function toggleMetric(name) {
+    setSelectedMetricNames((current) => {
+      if (current.includes(name)) {
+        return current.length === 1 ? current : current.filter((item) => item !== name);
+      }
+      return [...current, name];
+    });
   }
 
   async function runEvaluation() {
@@ -34,6 +55,7 @@ export function EvaluationPage({ remote, runTask, onNavigate }) {
       query_set_id: Number(querySetId),
       workflow_id: Number(workflowId),
       limit: limit ? Number(limit) : undefined,
+      metric_names: selectedMetricNames,
     });
   }
 
@@ -127,11 +149,25 @@ export function EvaluationPage({ remote, runTask, onNavigate }) {
             <Field label="数量限制" help="限制本次评测使用多少条 Query；留空表示跑完整评测集，调试时可先填小数字。">
               <input value={limit} onChange={(event) => setLimit(event.target.value)} placeholder="全部" />
             </Field>
+            <details className="advanced-section">
+              <summary>
+                <span>高级设置</span>
+                <small>RAGAS 指标：{selectedMetricSummary}</small>
+              </summary>
+              <MetricSelector
+                metrics={metricSpecs}
+                selected={selectedMetricNames}
+                defaultMetricNames={defaultMetricNames}
+                hasReference={hasReference}
+                onToggle={toggleMetric}
+                onReset={() => setSelectedMetricNames(defaultMetricNames)}
+              />
+            </details>
             <Button
               icon={Play}
               loading={isRunning}
               loadingLabel="评测中"
-              disabled={!querySetId || !workflowId}
+              disabled={!querySetId || !workflowId || selectedMetricNames.length === 0}
               onClick={handleRunEvaluation}
             >
               运行评测
@@ -143,12 +179,53 @@ export function EvaluationPage({ remote, runTask, onNavigate }) {
       <Panel title="运行记录">
         {visibleRuns.length ? (
           <div className="card-list">
-            {visibleRuns.map((run) => <EvalRunCard key={run.id} run={run} />)}
+            {visibleRuns.map((run) => <EvalRunCard key={run.id} run={run} metricsByName={metricsByName} />)}
           </div>
         ) : (
           <EmptyState title="暂无评测记录" body="选择 Query 集和已保存的 Workflow 后运行评测。" />
         )}
       </Panel>
+    </div>
+  );
+}
+
+function MetricSelector({ metrics, selected, defaultMetricNames, hasReference, onToggle, onReset }) {
+  return (
+    <div className="metric-selector">
+      <div className="metric-selector-head">
+        <strong>RAGAS 指标</strong>
+        <button type="button" className="text-action-button" onClick={onReset}>
+          恢复默认
+        </button>
+      </div>
+      <div className="metric-option-list">
+        {metrics.map((metric) => {
+          const disabled = metric.requires_reference && !hasReference;
+          return (
+            <label key={metric.name} className={`metric-option ${disabled ? 'disabled' : ''}`}>
+              <input
+                type="checkbox"
+                checked={selected.includes(metric.name)}
+                disabled={disabled}
+                onChange={() => onToggle(metric.name)}
+              />
+              <span>
+                <strong>
+                  {metric.label}
+                  <HelpDot text={metric.description} />
+                </strong>
+                <small>
+                  {metric.name}
+                  {metric.requires_reference ? ' · 需要 reference' : ' · query-only 可用'}
+                </small>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+      {!hasReference ? (
+        <p className="muted-copy">当前评测集没有 reference answer，因此依赖 reference 的指标会先禁用。</p>
+      ) : null}
     </div>
   );
 }
@@ -162,7 +239,7 @@ function estimateQueryCount(querySet, limit) {
   return Math.min(total, capped);
 }
 
-function EvalRunCard({ run }) {
+function EvalRunCard({ run, metricsByName }) {
   const isPending = run.id === 'pending';
   const [expanded, setExpanded] = useState(false);
   const metrics = run.metrics || {};
@@ -185,7 +262,7 @@ function EvalRunCard({ run }) {
         <div className="eval-metric-list" aria-label="总体指标">
           {metricEntries.map(([name, value]) => (
             <div key={name} className="eval-metric-pill">
-              <span>{name}</span>
+              <MetricLabel name={name} metricsByName={metricsByName} />
               <strong>{formatMetricValue(value)}</strong>
             </div>
           ))}
@@ -200,7 +277,7 @@ function EvalRunCard({ run }) {
           {expanded ? (
             <div className="eval-sample-list">
               {samples.map((sample, index) => (
-                <EvalSampleCard key={`${run.id}-${sample.index || index}`} sample={sample} index={index} />
+                <EvalSampleCard key={`${run.id}-${sample.index || index}`} sample={sample} index={index} metricsByName={metricsByName} />
               ))}
             </div>
           ) : null}
@@ -212,7 +289,7 @@ function EvalRunCard({ run }) {
   );
 }
 
-function EvalSampleCard({ sample, index }) {
+function EvalSampleCard({ sample, index, metricsByName }) {
   const contexts = Array.isArray(sample.contexts) ? sample.contexts : [];
   const metricEntries = Object.entries(sample.metrics || {});
   return (
@@ -222,7 +299,10 @@ function EvalSampleCard({ sample, index }) {
         {metricEntries.length ? (
           <div className="eval-sample-metrics">
             {metricEntries.map(([name, value]) => (
-              <span key={name}>{name}: {formatMetricValue(value)}</span>
+              <span key={name}>
+                <MetricLabel name={name} metricsByName={metricsByName} />
+                {formatMetricValue(value)}
+              </span>
             ))}
           </div>
         ) : null}
@@ -248,6 +328,16 @@ function EvalSampleCard({ sample, index }) {
         )}
       </details>
     </article>
+  );
+}
+
+function MetricLabel({ name, metricsByName }) {
+  const spec = metricsByName?.[name];
+  return (
+    <span className="metric-label">
+      <span>{spec?.label || name}</span>
+      {spec?.description ? <HelpDot text={spec.description} /> : null}
+    </span>
   );
 }
 
