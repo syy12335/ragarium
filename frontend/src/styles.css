@@ -221,6 +221,10 @@ nav {
   color: #1f2933;
 }
 
+.button.full-width {
+  width: 100%;
+}
+
 .button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
@@ -1300,9 +1304,15 @@ select:focus {
 }
 
 .status-processing,
-.status-indexing {
+.status-indexing,
+.status-running {
   background: #e8f2ff;
   color: #245f9e;
+}
+
+.status-pending {
+  background: #edf2f7;
+  color: #4b5b6e;
 }
 
 .status-failed {
@@ -2259,6 +2269,7 @@ select:focus {
 }
 
 .flow-node {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2296,6 +2307,39 @@ select:focus {
 .flow-node.selected {
   border-color: #2563a6;
   box-shadow: 0 0 0 3px rgba(37, 99, 166, 0.18);
+}
+
+.flow-node.run-running {
+  border-color: #2563a6;
+  background: #eff6ff;
+  box-shadow: 0 0 0 4px rgba(37, 99, 166, 0.18), 0 12px 22px rgba(37, 99, 166, 0.16);
+}
+
+.flow-node.run-completed {
+  border-color: #148a4b;
+  background: #f0fdf4;
+}
+
+.flow-node.run-failed {
+  border-color: #c24141;
+  background: #fff5f5;
+}
+
+.flow-node.run-pending {
+  border-color: #cbd5e1;
+  background: #fbfdff;
+}
+
+.node-running-dot {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 14px;
+  height: 14px;
+  border: 3px solid #ffffff;
+  border-radius: 999px;
+  background: #2563a6;
+  box-shadow: 0 0 0 4px rgba(37, 99, 166, 0.18);
 }
 
 .flow-node-start {
@@ -2404,6 +2448,188 @@ select:focus {
 .result {
   display: grid;
   gap: 10px;
+}
+
+.graph-test-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 14px;
+  background: #f8fbff;
+}
+
+.graph-test-panel p {
+  margin: 4px 0 0;
+  color: #607087;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.test-run-button {
+  min-height: 44px;
+  font-weight: 800;
+}
+
+.test-run-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+}
+
+.test-run-running {
+  border-color: #bfdbfe;
+  background: #f8fbff;
+}
+
+.test-run-completed {
+  border-color: #b8ebcd;
+  background: #f6fff9;
+}
+
+.test-run-failed {
+  border-color: #f1b9b8;
+  background: #fff7f7;
+}
+
+.test-run-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #273446;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.test-run-head small {
+  color: #6b7a8f;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.inline-error {
+  border: 1px solid #f1b9b8;
+  border-radius: 7px;
+  padding: 9px 10px;
+  background: #fff7f7;
+  color: #a61b1b;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.node-progress-list {
+  display: grid;
+  gap: 8px;
+}
+
+.node-progress-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #f8fafc;
+}
+
+.node-progress-item > span:not(.progress-dot) {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.node-progress-item strong {
+  color: #233044;
+  font-size: 13px;
+}
+
+.node-progress-item small {
+  overflow: hidden;
+  color: #6b7a8f;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-progress-item em {
+  color: #59687a;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.progress-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #cbd5e1;
+}
+
+.node-progress-item.status-running {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.node-progress-item.status-running .progress-dot {
+  background: #2563a6;
+  box-shadow: 0 0 0 4px rgba(37, 99, 166, 0.14);
+}
+
+.node-progress-item.status-completed .progress-dot {
+  background: #148a4b;
+}
+
+.node-progress-item.status-failed {
+  border-color: #f1b9b8;
+  background: #fff7f7;
+}
+
+.node-progress-item.status-failed .progress-dot {
+  background: #c24141;
+}
+
+.test-output {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 10px;
+}
+
+.answer-block {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px;
+  background: #ffffff;
+}
+
+.answer-block span {
+  color: #627186;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.answer-block p {
+  margin: 0;
+  color: #263445;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.context-list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 20px;
+  color: #263445;
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .result {

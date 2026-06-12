@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Background,
   Controls,
@@ -27,9 +27,11 @@ const DEFAULT_TEMPLATE_ID = 'blank';
 
 function FlowNode({ data, type, selected }) {
   const meta = nodeMeta[type] || {};
+  const runStatus = data?.runStatus || '';
   return (
-    <div className={`flow-node flow-node-${type} ${selected ? 'selected' : ''}`}>
+    <div className={`flow-node flow-node-${type} ${selected ? 'selected' : ''} ${runStatus ? `run-${runStatus}` : ''}`}>
       {type !== 'start' ? <Handle type="target" position={Position.Left} /> : null}
+      {runStatus === 'running' ? <span className="node-running-dot" /> : null}
       <strong>{data?.label || meta.label || type}</strong>
       <small>{meta.caption}</small>
       {type !== 'end' ? <Handle type="source" position={Position.Right} /> : null}
@@ -65,10 +67,13 @@ export function WorkflowPage({ remote, runTask }) {
   const [edges, setEdges] = useState([]);
   const [selectedNodeId, setSelectedNodeId] = useState('');
   const [flowInstance, setFlowInstance] = useState(null);
+  const [mainView, setMainView] = useState('canvas');
   const [startInputs, setStartInputs] = useState({});
   const [validationResult, setValidationResult] = useState(null);
-  const [executeResult, setExecuteResult] = useState(null);
   const [queryNodeResult, setQueryNodeResult] = useState(null);
+  const [testRun, setTestRun] = useState(null);
+  const [isTestRunning, setIsTestRunning] = useState(false);
+  const testPollRef = useRef(null);
 
   useEffect(() => {
     async function loadInitial() {
@@ -85,12 +90,43 @@ export function WorkflowPage({ remote, runTask }) {
   const selectedNode = nodes.find((node) => node.id === selectedNodeId);
   const startNode = nodes.find((node) => node.type === 'start');
   const startFields = Array.isArray(startNode?.data?.fields) ? startNode.data.fields : [];
+  const nodeRunStatus = useMemo(() => {
+    const statuses = {};
+    (testRun?.trace || []).forEach((item) => {
+      if (item.node_id) {
+        statuses[item.node_id] = item.status || 'pending';
+      }
+    });
+    return statuses;
+  }, [testRun]);
+  const flowNodes = useMemo(
+    () =>
+      nodes.map((node) => ({
+        ...node,
+        data: {
+          ...(node.data || {}),
+          runStatus: nodeRunStatus[node.id] || (testRun ? 'pending' : ''),
+        },
+      })),
+    [nodes, nodeRunStatus, testRun],
+  );
+
+  function stopTestPolling() {
+    if (testPollRef.current) {
+      window.clearTimeout(testPollRef.current);
+      testPollRef.current = null;
+    }
+  }
 
   function clearRunState() {
+    stopTestPolling();
     setValidationResult(null);
-    setExecuteResult(null);
     setQueryNodeResult(null);
+    setTestRun(null);
+    setIsTestRunning(false);
   }
+
+  useEffect(() => () => stopTestPolling(), []);
 
   async function createNewGraph(templateId = DEFAULT_TEMPLATE_ID, knownTemplates = templates) {
     const payload = await api.getDefaultWorkflow(templateId);
@@ -101,6 +137,7 @@ export function WorkflowPage({ remote, runTask }) {
     setNodes(nextGraph.nodes);
     setEdges(nextGraph.edges);
     setSelectedNodeId(nextGraph.nodes[0]?.id || '');
+    setMainView('canvas');
     setStartInputs({});
     clearRunState();
     setViewMode('editor');
@@ -121,6 +158,7 @@ export function WorkflowPage({ remote, runTask }) {
     setNodes(nextGraph.nodes);
     setEdges(nextGraph.edges);
     setSelectedNodeId(nextGraph.nodes[0]?.id || '');
+    setMainView('canvas');
     setStartInputs({});
     clearRunState();
     setViewMode('editor');
@@ -183,6 +221,20 @@ export function WorkflowPage({ remote, runTask }) {
     addNode(type, position);
   }
 
+  function handleNodesChange(changes) {
+    if (changes.some((change) => !['select', 'dimensions'].includes(change.type))) {
+      clearRunState();
+    }
+    setNodes((current) => applyNodeChanges(changes, current));
+  }
+
+  function handleEdgesChange(changes) {
+    if (changes.some((change) => change.type !== 'select')) {
+      clearRunState();
+    }
+    setEdges((current) => applyEdgeChanges(changes, current));
+  }
+
   async function saveCurrentWorkflow() {
     const saved = await api.saveWorkflow({
       id: workflowId || undefined,
@@ -200,12 +252,67 @@ export function WorkflowPage({ remote, runTask }) {
     return result;
   }
 
-  async function executeCurrentWorkflow() {
-    const saved = await saveCurrentWorkflow();
-    const result = await api.executeWorkflow(saved.id, { inputs: startInputs });
-    setExecuteResult(result);
-    await remote.refresh();
-    return result;
+  async function pollWorkflowTestRun(runId) {
+    const snapshot = await api.getWorkflowTestRun(runId);
+    setTestRun(snapshot);
+    if (snapshot.status === 'running') {
+      testPollRef.current = window.setTimeout(() => {
+        pollWorkflowTestRun(runId).catch((error) => {
+          setIsTestRunning(false);
+          setTestRun((current) => ({
+            ...(current || { run_id: runId, trace: [] }),
+            status: 'failed',
+            error: error.message,
+          }));
+        });
+      }, 500);
+    } else {
+      setIsTestRunning(false);
+      await remote.refresh();
+    }
+    return snapshot;
+  }
+
+  async function startGraphTest() {
+    stopTestPolling();
+    setQueryNodeResult(null);
+    setValidationResult(null);
+    setIsTestRunning(true);
+    setTestRun({
+      status: 'running',
+      trace: nodes.map((node) => ({ node_id: node.id, type: node.type, status: 'pending' })),
+      outputs: null,
+      error: null,
+    });
+    try {
+      const saved = await saveCurrentWorkflow();
+      const initial = await api.startWorkflowTestRun(saved.id, { inputs: startInputs });
+      setTestRun(initial);
+      if (initial.status === 'running') {
+        testPollRef.current = window.setTimeout(() => {
+          pollWorkflowTestRun(initial.run_id).catch((error) => {
+            setIsTestRunning(false);
+            setTestRun((current) => ({
+              ...(current || initial),
+              status: 'failed',
+              error: error.message,
+            }));
+          });
+        }, 500);
+      } else {
+        setIsTestRunning(false);
+        await remote.refresh();
+      }
+      return initial;
+    } catch (error) {
+      setIsTestRunning(false);
+      setTestRun((current) => ({
+        ...(current || { trace: [] }),
+        status: 'failed',
+        error: error.message,
+      }));
+      throw error;
+    }
   }
 
   async function runSelectedNode() {
@@ -226,6 +333,7 @@ export function WorkflowPage({ remote, runTask }) {
   function returnToLanding() {
     setViewMode('landing');
     setSelectedNodeId('');
+    setMainView('canvas');
     clearRunState();
   }
 
@@ -292,33 +400,67 @@ export function WorkflowPage({ remote, runTask }) {
         </div>
         </Panel>
 
-        <div className="canvas-panel" onDrop={onDrop} onDragOver={onDragOver}>
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            onInit={setFlowInstance}
-            onNodesChange={(changes) => setNodes((current) => applyNodeChanges(changes, current))}
-            onEdgesChange={(changes) => setEdges((current) => applyEdgeChanges(changes, current))}
-            onConnect={(params) =>
-              setEdges((current) =>
-                addEdge(
-                  {
-                    ...params,
-                    id: `${params.source}-${params.target}-${Date.now()}`,
-                    animated: false,
-                  },
-                  current,
-                ),
-              )
-            }
-            onNodeClick={(_, node) => setSelectedNodeId(node.id)}
-            onPaneClick={() => setSelectedNodeId('')}
-            fitView
-          >
-            <Background />
-            <Controls />
-          </ReactFlow>
+        <div className="workflow-main-area">
+          <div className="workflow-main-toolbar">
+            <div className="segmented-tabs">
+              <button className={mainView === 'canvas' ? 'active' : ''} onClick={() => setMainView('canvas')}>
+                画布
+              </button>
+              <button className={mainView === 'debug' ? 'active' : ''} onClick={() => setMainView('debug')}>
+                调试
+              </button>
+            </div>
+            {testRun ? (
+              <span className="workflow-run-summary">
+                {isTestRunning && testRun.current_node_type
+                  ? `当前：${nodeLabel(testRun.current_node_type)}`
+                  : `测试：${traceStatusLabel(testRun.status)}`}
+              </span>
+            ) : null}
+          </div>
+          {mainView === 'canvas' ? (
+            <div className="canvas-panel" onDrop={onDrop} onDragOver={onDragOver}>
+              <ReactFlow
+                nodes={flowNodes}
+                edges={edges}
+                nodeTypes={nodeTypes}
+                onInit={setFlowInstance}
+                onNodesChange={handleNodesChange}
+                onEdgesChange={handleEdgesChange}
+                onConnect={(params) => {
+                  clearRunState();
+                  setEdges((current) =>
+                    addEdge(
+                      {
+                        ...params,
+                        id: `${params.source}-${params.target}-${Date.now()}`,
+                        animated: false,
+                      },
+                      current,
+                    ),
+                  );
+                }}
+                onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+                onPaneClick={() => setSelectedNodeId('')}
+                fitView
+              >
+                <Background />
+                <Controls />
+              </ReactFlow>
+            </div>
+          ) : (
+            <GraphDebugWorkspace
+              nodes={nodes}
+              fields={startFields}
+              values={startInputs}
+              onChange={updateStartInput}
+              testRun={testRun}
+              isRunning={isTestRunning}
+              onRun={startGraphTest}
+              selectedNodeId={selectedNodeId}
+              onSelectNode={setSelectedNodeId}
+            />
+          )}
         </div>
 
         <Panel title="参数配置" className="inspector-panel" actions={<Settings size={17} />}>
@@ -332,9 +474,6 @@ export function WorkflowPage({ remote, runTask }) {
             <Button icon={Save} onClick={() => runTask('保存 Graph 中', saveCurrentWorkflow)}>
               保存
             </Button>
-            <Button icon={Play} onClick={() => runTask('执行 Graph 中', executeCurrentWorkflow)}>
-              执行
-            </Button>
           </div>
 
           {validationResult ? (
@@ -344,7 +483,11 @@ export function WorkflowPage({ remote, runTask }) {
             </div>
           ) : null}
 
-          <StartInputForm fields={startFields} values={startInputs} onChange={updateStartInput} />
+          <DebugShortcut
+            testRun={testRun}
+            isRunning={isTestRunning}
+            onOpen={() => setMainView('debug')}
+          />
 
           <NodeInspector
             node={selectedNode}
@@ -355,7 +498,6 @@ export function WorkflowPage({ remote, runTask }) {
           />
 
           {queryNodeResult ? <QuerySetResult result={queryNodeResult.query_set} title="节点生成结果" /> : null}
-          {executeResult ? <ExecutionResult result={executeResult} /> : null}
         </Panel>
       </div>
     </div>
@@ -477,6 +619,152 @@ function StartInputForm({ fields, values, onChange }) {
       }) : (
         <EmptyState title="无需输入" body="Start 节点没有定义输入参数。" />
       )}
+    </div>
+  );
+}
+
+function traceStatusLabel(status) {
+  const labels = {
+    pending: '等待中',
+    running: '运行中',
+    completed: '已完成',
+    failed: '失败',
+  };
+  return labels[status] || status || '等待中';
+}
+
+function nodeLabel(type) {
+  return nodeMeta[type]?.label || type || 'Unknown';
+}
+
+function formatContext(context) {
+  if (typeof context === 'string') {
+    return context;
+  }
+  if (context && typeof context === 'object') {
+    return context.content || context.page_content || context.text || JSON.stringify(context);
+  }
+  return String(context ?? '');
+}
+
+function GraphTestPanel({ fields, values, onChange, testRun, isRunning, onRun }) {
+  const trace = testRun?.trace || [];
+  const currentNode = testRun?.current_node_type ? nodeLabel(testRun.current_node_type) : '';
+  const buttonLabel = isRunning ? '测试中' : testRun ? '重新测试' : '开始端到端测试';
+  const missingRequired = fields.some((field) => field.required && !String(values[field.name] ?? field.default ?? '').trim());
+  async function handleRun() {
+    try {
+      await onRun();
+    } catch {
+      // The panel state is updated by startGraphTest; keep the click quiet here.
+    }
+  }
+  return (
+    <div className="graph-test-panel">
+      <div>
+        <h3>Graph 测试</h3>
+        <p>输入一次真实问题，端到端跑完整个 Graph，并实时查看当前流转到哪个节点。</p>
+      </div>
+      <StartInputForm fields={fields} values={values} onChange={onChange} />
+      <Button
+        icon={Play}
+        className="full-width test-run-button"
+        loading={isRunning}
+        loadingLabel="测试中"
+        disabled={missingRequired}
+        onClick={handleRun}
+      >
+        {buttonLabel}
+      </Button>
+      {missingRequired ? <p className="test-run-hint">先补齐 Start 节点必填输入，再开始测试。</p> : null}
+      {testRun ? (
+        <div className={`test-run-card test-run-${testRun.status || 'pending'}`}>
+          <div className="test-run-head">
+            <span>{isRunning && currentNode ? `当前：${currentNode}` : `状态：${traceStatusLabel(testRun.status)}`}</span>
+            {testRun.run_id ? <small>Run {testRun.run_id.slice(0, 8)}</small> : null}
+          </div>
+          {testRun.error ? <div className="inline-error">{testRun.error}</div> : null}
+          {trace.length ? (
+            <div className="node-progress-list">
+              {trace.map((item) => (
+                <div className={`node-progress-item status-${item.status || 'pending'}`} key={item.node_id}>
+                  <span className="progress-dot" />
+                  <span>
+                    <strong>{nodeLabel(item.type)}</strong>
+                    <small>{item.duration_ms || item.duration_ms === 0 ? `${item.duration_ms}ms` : item.node_id}</small>
+                  </span>
+                  <em>{traceStatusLabel(item.status)}</em>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {testRun.outputs ? <TestRunOutput outputs={testRun.outputs} /> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function TestRunOutput({ outputs }) {
+  const contexts = outputs.contexts || [];
+  const evalRun = outputs.eval_run;
+  const querySet = outputs.query_set;
+  const hasRagOutput = outputs.question || outputs.answer || contexts.length;
+  return (
+    <div className="test-output">
+      <h3>测试结果</h3>
+      {hasRagOutput ? (
+        <>
+          {outputs.question ? (
+            <div className="answer-block">
+              <span>Question</span>
+              <strong>{outputs.question}</strong>
+            </div>
+          ) : null}
+          <div className="answer-block">
+            <span>Answer</span>
+            <p>{outputs.answer || '暂无回答内容'}</p>
+          </div>
+          <div className="answer-block">
+            <span>Contexts</span>
+            {contexts.length ? (
+              <ol className="context-list">
+                {contexts.slice(0, 5).map((context, index) => (
+                  <li key={`${index}-${formatContext(context).slice(0, 24)}`}>{formatContext(context)}</li>
+                ))}
+              </ol>
+            ) : (
+              <p>没有返回 contexts。</p>
+            )}
+          </div>
+        </>
+      ) : querySet || evalRun || outputs.answer_count ? (
+        <div className="result-summary">
+          {querySet ? (
+            <div>
+              <span>Query Set</span>
+              <strong>#{querySet.id}</strong>
+            </div>
+          ) : null}
+          {outputs.answer_count ? (
+            <div>
+              <span>Answers</span>
+              <strong>{outputs.answer_count}</strong>
+            </div>
+          ) : null}
+          {evalRun ? (
+            <div>
+              <span>Eval Run</span>
+              <strong>#{evalRun.id}</strong>
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <pre>{JSON.stringify(outputs, null, 2)}</pre>
+      )}
+      {evalRun?.metrics && Object.keys(evalRun.metrics).length ? (
+        <pre>{JSON.stringify(evalRun.metrics, null, 2)}</pre>
+      ) : null}
     </div>
   );
 }

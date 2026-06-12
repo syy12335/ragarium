@@ -60,6 +60,8 @@ export function StatusPill({ status }) {
     not_indexed: '未索引',
     processing: '处理中',
     indexing: '索引中',
+    pending: '等待中',
+    running: '运行中',
     failed: '失败',
     completed: '已完成',
   };

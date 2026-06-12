@@ -81,6 +81,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+  startWorkflowTestRun: (workflowId, payload) =>
+    request(`/api/workflows/${workflowId}/test-runs`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  getWorkflowTestRun: (runId) => request(`/api/workflow-test-runs/${runId}`),
   runWorkflowNode: (workflowId, nodeId) =>
     request(`/api/workflows/${workflowId}/nodes/${nodeId}/run`, { method: 'POST' }),
   evaluateWorkflow: (workflowId) =>
