@@ -804,6 +804,9 @@ def test_api_import_index_generate_and_eval(tmp_path):
     assert test_run["current_node_id"] is None
     assert [item["status"] for item in test_run["trace"]] == ["completed"] * len(test_run["trace"])
     assert any(item["type"] == "answer" and item["output"]["context_count"] == 1 for item in test_run["trace"])
+    answer_test_trace = next(item for item in test_run["trace"] if item["type"] == "answer")
+    assert answer_test_trace["input"]["question"] == "How does test run work?"
+    assert answer_test_trace["output"]["answer"] == f"fake answer from {store.get_knowledge_base(kb_id)['collection_name']}"
 
     evaluation_workflow_response = client.post(
         "/api/workflows",
