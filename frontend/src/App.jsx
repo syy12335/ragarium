@@ -27,7 +27,7 @@ import { WorkflowPage } from './pages/WorkflowPage.jsx';
 const tabs = [
   { id: 'home', label: '导航', subtitle: '产品入口与 Runtime API', icon: Home },
   { id: 'data', label: '数据', subtitle: '知识库与评测集', icon: Database },
-  { id: 'workflow', label: 'Workflow', subtitle: 'Dify-like RAG pipeline 画布', icon: GitBranch },
+  { id: 'workflow', label: 'Workflow', subtitle: 'RAG Graph 编辑与调试', icon: GitBranch },
   { id: 'evaluation', label: '评测', subtitle: '无参考答案 RAGAS 运行', icon: ListChecks },
   { id: 'config', label: '配置', subtitle: 'Provider、默认模型和高级参数', icon: SlidersHorizontal },
 ];
