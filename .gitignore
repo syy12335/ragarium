@@ -6,6 +6,8 @@ __pycache__/
 var/
 chroma_db/
 datasets/processed/
+config/application.yaml
+config/model_roles.yaml
 
 frontend/node_modules/
 frontend/dist/

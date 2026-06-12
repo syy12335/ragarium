@@ -1,35 +1,21 @@
 embedding:
-  provider: "qwen"
-  model_name: "text-embedding-v4"
-
+  provider: qwen
+  model_name: text-embedding-v4
 generation:
-  provider: "qwen"
-  model_name: "qwen3.7-plus"
+  provider: qwen
+  model_name: qwen3.7-plus
   temperature: 0.2
   max_tokens: 1024
-  parser: "str"
-  inputs: [ question, contexts, memory_text ]
-  prompt: |
-    你现在的身份是一名基于检索文档回答问题的问答助手。
-
-    回答规则：
-      1. 回答必须完全基于提供的上下文内容；
-      2. 若上下文未包含答案，请回答“我不知道”；
-      3. 回答需简洁明了，不超过三句话；
-      4. 不得加入任何未在上下文中出现的信息；
-      5. 不要输出解释说明，只输出最终回答。
-
-    【问题】
-    {question}
-
-    【上下文】
-    {contexts}
-
-    【记忆（可为空）】
-    {memory_text}
-
+  parser: str
+  inputs:
+  - question
+  - contexts
+  - memory_text
+  prompt: "你现在的身份是一名基于检索文档回答问题的问答助手。\n\n回答规则：\n  1. 回答必须完全基于提供的上下文内容；\n  2. 若上下文未包含答案，请回答“我不知道”；\n\
+    \  3. 回答需简洁明了，不超过三句话；\n  4. 不得加入任何未在上下文中出现的信息；\n  5. 不要输出解释说明，只输出最终回答。\n\n【问题】\n\
+    {question}\n\n【上下文】\n{contexts}\n\n【记忆（可为空）】\n{memory_text}\n"
 evaluation:
-  provider: "qwen"
-  model_name: "qwen3.7-plus"
-  temperature: 0      # 评估建议用 0，保证判分稳定
+  provider: qwen
+  model_name: qwen3.7-plus
+  temperature: 0
   max_tokens: 1024

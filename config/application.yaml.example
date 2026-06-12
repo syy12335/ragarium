@@ -1,0 +1,71 @@
+llm:
+  # 默认只保留千问，降低本地产品首次使用复杂度。
+  # 具体角色用哪个 model_name，在 config/model_roles.yaml 中指定。
+  qwen:
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key_env: "API_KEY_QWEN"
+    default_model_name: "qwen3.7-plus"
+
+############ 一般下面保留默认配置即可 ############
+
+dataset:
+  # 评估样本文件（RAG 输入问答数据），相对于 project-root
+  # cmrc2018 的样本构建逻辑会把结果写到这里
+  samples_path: "datasets/processed/cmrc2018_samples.json"
+
+  # chunk 文件（切好的文本片段，用于向量库），相对于 project-root
+  # VectorDatabaseBuilder 会将 chunks 写到这里并从这里读取
+  chunks_path: "datasets/processed/cmrc2018_chunks.jsonl"
+
+  cmrc2018:
+    # 原始 CMRC2018 数据所在目录（相对于 project-root）
+    raw_dir: "datasets/raw"
+
+    # 处理后数据所在目录（相对于 project-root）
+    processed_dir: "datasets/processed"
+
+    # 默认样本文件名（不含目录）
+    # 一般与上面的 samples_path 对应：processed_dir + samples_file
+    samples_file: "cmrc2018_samples.json"
+
+    # 各 split 对应的原始 JSON 文件路径（相对于 project-root）
+    # 实际读取以 raw_files.<split> 为准
+    raw_files:
+      train: "datasets/raw/cmrc2018_train.json"
+      dev:   "datasets/raw/cmrc2018_dev.json"
+      trial: "datasets/raw/cmrc2018_trial.json"
+
+    # 实际参与构建的 split 列表
+    # 只用 dev 的话就保留 dev 即可
+    splits:
+      - dev
+      # - train
+      # - trial
+
+    # 每个 split 内部的样本数上限
+    # 先对单个 split 截断，控制单个文件的样本量
+    sample_limit_per_split: 20
+
+    # 所有 split 合并之后的总体样本数上限
+    # 合并后再截一次，控制总的 samples 数量
+    total_sample_limit: 50
+
+
+vector_store:
+  # Chroma 向量库持久化目录（相对于 project-root）
+  persist_directory: "chroma_db/cmrc2018"
+
+  # Chroma collection 名称
+  # VectorDatabaseBuilder 默认使用这个名称创建 / 复用 collection
+  collection_name: "cmrc2018_default"
+
+ingestion:
+  chunk_size: 900
+  chunk_overlap: 120
+
+evaluation:
+  # RAGAS 评估结果 CSV 相对路径（相对于 project-root）
+  output_csv: "datasets/processed/ragas_result.csv"
+
+  # 可选：样本数上限，0 或不写表示不限（EvalEngine 会读取）
+  sample_limit: 0

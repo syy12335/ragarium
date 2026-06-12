@@ -36,6 +36,13 @@ cd ..
 
 ### 2. 配置千问 API Key
 
+首次启动或首次读取配置时，系统会自动从模板生成本地配置：
+
+- `config/application.yaml`
+- `config/model_roles.yaml`
+
+这两个运行时 YAML 会被 Git 忽略；仓库只跟踪 `.example` 模板。需要重置配置时，删除本地 YAML 后重启服务即可重新生成。
+
 默认配置只需要一个千问 Key：
 
 ```bash
