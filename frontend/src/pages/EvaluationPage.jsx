@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Play, WandSparkles } from 'lucide-react';
+import { ChevronDown, ChevronRight, Play, WandSparkles } from 'lucide-react';
 import { api } from '../api.js';
 import { Button, EmptyState, Field, Panel, StatusPill } from '../components/ui.jsx';
 
@@ -164,6 +164,10 @@ function estimateQueryCount(querySet, limit) {
 
 function EvalRunCard({ run }) {
   const isPending = run.id === 'pending';
+  const [expanded, setExpanded] = useState(false);
+  const metrics = run.metrics || {};
+  const metricEntries = Object.entries(metrics);
+  const samples = Array.isArray(run.samples) ? run.samples : [];
   return (
     <article className={`card-item eval-run-card ${isPending ? 'active' : ''}`}>
       <div className="card-head">
@@ -177,11 +181,85 @@ function EvalRunCard({ run }) {
       </span>
       {isPending && run.status === 'running' ? <EvalProgress /> : null}
       {run.error ? <p className="error-text">{run.error}</p> : null}
-      {Object.keys(run.metrics || {}).length ? (
-        <pre>{JSON.stringify(run.metrics, null, 2)}</pre>
+      {metricEntries.length ? (
+        <div className="eval-metric-list" aria-label="总体指标">
+          {metricEntries.map(([name, value]) => (
+            <div key={name} className="eval-metric-pill">
+              <span>{name}</span>
+              <strong>{formatMetricValue(value)}</strong>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {samples.length ? (
+        <div className="eval-sample-section">
+          <button type="button" className="text-action-button" onClick={() => setExpanded((value) => !value)}>
+            {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+            <span>{expanded ? '收起单条明细' : `查看 ${samples.length} 条单条明细`}</span>
+          </button>
+          {expanded ? (
+            <div className="eval-sample-list">
+              {samples.map((sample, index) => (
+                <EvalSampleCard key={`${run.id}-${sample.index || index}`} sample={sample} index={index} />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : !isPending && run.status === 'completed' ? (
+        <p className="muted-copy">这条历史记录没有保存单条明细；重新运行一次评测后会展示每条 Query 的答案和 contexts。</p>
       ) : null}
     </article>
   );
+}
+
+function EvalSampleCard({ sample, index }) {
+  const contexts = Array.isArray(sample.contexts) ? sample.contexts : [];
+  const metricEntries = Object.entries(sample.metrics || {});
+  return (
+    <article className="eval-sample-card">
+      <div className="eval-sample-head">
+        <strong>单条 #{sample.index || index + 1}</strong>
+        {metricEntries.length ? (
+          <div className="eval-sample-metrics">
+            {metricEntries.map(([name, value]) => (
+              <span key={name}>{name}: {formatMetricValue(value)}</span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+      <div className="eval-sample-block">
+        <span>Query</span>
+        <p>{sample.question || '无 Query'}</p>
+      </div>
+      <div className="eval-sample-block">
+        <span>Answer</span>
+        <p>{sample.answer || '无 answer'}</p>
+      </div>
+      <details className="eval-contexts">
+        <summary>Contexts（{contexts.length}）</summary>
+        {contexts.length ? (
+          <ol>
+            {contexts.map((context, contextIndex) => (
+              <li key={contextIndex}>{String(context)}</li>
+            ))}
+          </ol>
+        ) : (
+          <p>没有返回 contexts。</p>
+        )}
+      </details>
+    </article>
+  );
+}
+
+function formatMetricValue(value) {
+  if (value === null || value === undefined) {
+    return '无结果';
+  }
+  const number = Number(value);
+  if (Number.isFinite(number)) {
+    return number.toFixed(3);
+  }
+  return String(value);
 }
 
 function EvalProgress() {
