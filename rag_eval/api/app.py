@@ -190,6 +190,7 @@ def create_app(
     state_root = _default_state_root()
     store = store or ProductStore(state_root / "state.sqlite")
     config_service = AppConfigService(config_path, secrets_path=state_root / "provider_keys.yaml")
+    config_service.read()
     ingestion_service = ingestion_service or IngestionService(
         store,
         state_root / "uploads",
