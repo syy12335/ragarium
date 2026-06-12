@@ -6,6 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 
 import yaml
+import pandas as pd
 from fastapi.testclient import TestClient
 
 from rag_eval.api import create_app
@@ -112,12 +113,29 @@ class FakeWorkflowEngine(WorkflowEngine):
 class FakeEvalResult:
     overall: dict
     csv_path: str
+    per_sample: pd.DataFrame
 
 
 class FakeEvalEngine:
     def invoke(self, runner, samples):
         assert samples
-        return FakeEvalResult(overall={"faithfulness": 1.0, "answer_relevancy": 0.9}, csv_path="fake.csv")
+        rows = []
+        for sample in samples:
+            result = runner.invoke(sample["question"])
+            rows.append(
+                {
+                    "question": sample["question"],
+                    "answer": result["answer"],
+                    "contexts": result["contexts"],
+                    "faithfulness": 1.0,
+                    "answer_relevancy": 0.9,
+                }
+            )
+        return FakeEvalResult(
+            overall={"faithfulness": 1.0, "answer_relevancy": 0.9},
+            csv_path="fake.csv",
+            per_sample=pd.DataFrame(rows),
+        )
 
 
 class FakeBrowserSessionManager:
@@ -727,7 +745,13 @@ def test_api_import_index_generate_and_eval(tmp_path):
         json={"query_set_id": query_set_id, "workflow_id": workflow_id},
     )
     assert eval_response.status_code == 200
-    assert eval_response.json()["status"] == "completed"
+    eval_run = eval_response.json()
+    assert eval_run["status"] == "completed"
+    assert eval_run["sample_count"] == 3
+    assert eval_run["samples"][0]["question"] == "怎么导入资料？"
+    assert "fake answer" in eval_run["samples"][0]["answer"]
+    assert eval_run["samples"][0]["contexts"] == ["fake context"]
+    assert eval_run["samples"][0]["metrics"] == {"answer_relevancy": 0.9, "faithfulness": 1.0}
 
     templates_response = client.get("/api/workflows/templates")
     assert templates_response.status_code == 200
@@ -826,6 +850,8 @@ def test_api_import_index_generate_and_eval(tmp_path):
     assert workflow_eval["query_set"]["target_count"] == 3
     assert workflow_eval["answer_count"] == 3
     assert workflow_eval["eval_run"]["status"] == "completed"
+    assert workflow_eval["eval_run"]["sample_count"] == 3
+    assert workflow_eval["eval_run"]["samples"][0]["question"] == "怎么导入资料？"
     answer_trace = next(item for item in workflow_eval["trace"] if item["type"] == "answer")
     assert answer_trace["output"]["answer_count"] == 3
     assert answer_trace["output"]["context_count"] == 3

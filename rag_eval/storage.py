@@ -100,6 +100,7 @@ class ProductStore:
                     workflow_id INTEGER REFERENCES workflows(id) ON DELETE SET NULL,
                     status TEXT NOT NULL,
                     metrics_json TEXT NOT NULL,
+                    samples_json TEXT NOT NULL DEFAULT '[]',
                     output_csv TEXT,
                     error TEXT,
                     created_at TEXT NOT NULL
@@ -108,6 +109,7 @@ class ProductStore:
             )
             self._ensure_knowledge_base_columns(conn)
             self._ensure_source_columns(conn)
+            self._ensure_eval_run_columns(conn)
 
     def _ensure_knowledge_base_columns(self, conn: sqlite3.Connection) -> None:
         existing = {
@@ -135,6 +137,18 @@ class ProductStore:
         for name, definition in columns.items():
             if name not in existing:
                 conn.execute(f"ALTER TABLE sources ADD COLUMN {name} {definition}")
+
+    def _ensure_eval_run_columns(self, conn: sqlite3.Connection) -> None:
+        existing = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(eval_runs)").fetchall()
+        }
+        columns = {
+            "samples_json": "TEXT NOT NULL DEFAULT '[]'",
+        }
+        for name, definition in columns.items():
+            if name not in existing:
+                conn.execute(f"ALTER TABLE eval_runs ADD COLUMN {name} {definition}")
 
     @staticmethod
     def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
@@ -445,6 +459,7 @@ class ProductStore:
         workflow_id: Optional[int],
         status: str,
         metrics: Dict[str, Any],
+        samples: Optional[List[Dict[str, Any]]] = None,
         output_csv: Optional[str] = None,
         error: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -453,15 +468,16 @@ class ProductStore:
             cur = conn.execute(
                 """
                 INSERT INTO eval_runs (
-                    query_set_id, workflow_id, status, metrics_json, output_csv, error, created_at
+                    query_set_id, workflow_id, status, metrics_json, samples_json, output_csv, error, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     query_set_id,
                     workflow_id,
                     status,
                     json.dumps(metrics, ensure_ascii=False),
+                    json.dumps(samples or [], ensure_ascii=False),
                     output_csv,
                     error,
                     now,
@@ -477,6 +493,8 @@ class ProductStore:
             raise KeyError(f"eval run not found: {eval_run_id}")
         item = self._row_to_dict(row)
         item["metrics"] = json.loads(item.pop("metrics_json"))
+        item["samples"] = json.loads(item.pop("samples_json", "[]") or "[]")
+        item["sample_count"] = len(item["samples"])
         return item
 
     def list_eval_runs(self) -> List[Dict[str, Any]]:
@@ -486,5 +504,7 @@ class ProductStore:
         for row in rows:
             item = self._row_to_dict(row)
             item["metrics"] = json.loads(item.pop("metrics_json"))
+            item["samples"] = json.loads(item.pop("samples_json", "[]") or "[]")
+            item["sample_count"] = len(item["samples"])
             items.append(item)
         return items

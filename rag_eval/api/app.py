@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import threading
 import time
@@ -114,6 +115,37 @@ def _http_error(exc: Exception) -> HTTPException:
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _json_safe(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        converted = float(value)
+        if not math.isfinite(converted):
+            return None
+        return value
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    if hasattr(value, "tolist"):
+        try:
+            return _json_safe(value.tolist())
+        except Exception:
+            pass
+    try:
+        if value != value:
+            return None
+    except Exception:
+        pass
+    if str(value) in {"nan", "NaN", "<NA>", "NaT"}:
+        return None
+    if isinstance(value, str):
+        return value
+    return str(value)
 
 
 class WorkflowRunner:
@@ -1263,6 +1295,40 @@ def create_app(
             "top_k": top_k,
         }
 
+    def build_eval_run_samples(result: Any, records: List[RagEvalRecord]) -> List[Dict[str, Any]]:
+        metric_names = sorted((getattr(result, "overall", {}) or {}).keys())
+        rows: List[Dict[str, Any]] = []
+        per_sample = getattr(result, "per_sample", None)
+        if per_sample is not None and hasattr(per_sample, "to_dict"):
+            rows = per_sample.to_dict(orient="records")
+
+        samples = []
+        for index, record in enumerate(records):
+            row = rows[index] if index < len(rows) else {}
+            contexts = row.get("contexts", record.contexts)
+            if contexts is None:
+                contexts = []
+            elif isinstance(contexts, str):
+                contexts = [contexts]
+
+            metrics = {
+                name: _json_safe(row.get(name))
+                for name in metric_names
+                if name in row
+            }
+            samples.append(
+                {
+                    "index": index + 1,
+                    "question": _json_safe(row.get("question", record.question)),
+                    "answer": _json_safe(row.get("answer", record.answer)),
+                    "contexts": _json_safe(contexts),
+                    "ground_truth": _json_safe(row.get("ground_truth", record.ground_truth)),
+                    "metrics": metrics,
+                    "meta": _json_safe(record.meta),
+                }
+            )
+        return samples
+
     def create_eval_run_from_answer_records(
         *,
         query_set: Dict[str, Any],
@@ -1270,11 +1336,13 @@ def create_app(
         records: List[RagEvalRecord],
     ) -> Dict[str, Any]:
         result = evaluate_records_with_engine(records)
+        samples = build_eval_run_samples(result, records)
         return store.create_eval_run(
             query_set_id=query_set["id"],
             workflow_id=workflow["id"],
             status="completed",
             metrics=result.overall,
+            samples=samples,
             output_csv=result.csv_path,
         )
 
