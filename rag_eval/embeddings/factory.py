@@ -9,7 +9,7 @@ from typing import Final
 from langchain_core.embeddings import Embeddings
 from langchain_community.embeddings import DashScopeEmbeddings
 
-from utils import YamlConfigReader
+from utils import YamlConfigReader, ensure_yaml_config_file
 
 
 def _get_project_root(config: YamlConfigReader) -> Path:
@@ -25,7 +25,7 @@ def _load_model_roles_config(app_config: YamlConfigReader) -> YamlConfigReader:
     从 project-root/config/model_roles.yaml 加载角色配置。
     """
     project_root = _get_project_root(app_config)
-    roles_path = project_root / "config" / "model_roles.yaml"
+    roles_path = ensure_yaml_config_file(project_root / "config" / "model_roles.yaml")
 
     if not roles_path.exists():
         raise FileNotFoundError(

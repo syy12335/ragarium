@@ -22,7 +22,7 @@ from langchain_openai import ChatOpenAI
 
 import pandas as pd
 
-from utils import YamlConfigReader
+from utils import YamlConfigReader, ensure_yaml_config_file
 from rag_eval.eval_engine.rag_batch_runner import RagEvalRecord
 from rag_eval.eval_engine.eval_result import EvalResult
 from rag_eval.eval_engine.metric_presets import infer_metric_preset, resolve_ragas_metrics
@@ -100,7 +100,7 @@ def _load_model_roles(config: YamlConfigReader) -> YamlConfigReader:
       application.yaml 位于 project-root/config/
       model_roles.yaml 也位于 project-root/config/
     """
-    roles_path = config.config_path.parent / "model_roles.yaml"
+    roles_path = ensure_yaml_config_file(config.config_path.parent / "model_roles.yaml")
     if not roles_path.exists():
         raise FileNotFoundError(
             f"未在 {roles_path} 找到 model_roles.yaml，"

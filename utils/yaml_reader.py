@@ -1,9 +1,28 @@
 # qwen_rag_eval/utils/yaml_reader.py
 
 import os
+import shutil
 import yaml
 from pathlib import Path
 from typing import Any, Optional
+
+
+def ensure_yaml_config_file(path: Path) -> Path:
+    """
+    Ensure a runtime YAML config exists.
+
+    Runtime files such as config/application.yaml are intentionally ignored by
+    Git. When a fresh checkout only has config/application.yaml.example, copy
+    that template on first read and leave existing user files untouched.
+    """
+    if path.exists():
+        return path
+
+    template = Path(f"{path}.example")
+    if template.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(template, path)
+    return path
 
 
 class YamlConfigReader:
@@ -37,6 +56,7 @@ class YamlConfigReader:
 
         # 1. 绝对路径优先
         if path_obj.is_absolute():
+            path_obj = ensure_yaml_config_file(path_obj)
             if path_obj.exists():
                 return path_obj
             raise FileNotFoundError(f"配置文件不存在：{path_obj}")
@@ -52,6 +72,7 @@ class YamlConfigReader:
                 # 情况 B：指向具体文件（例如 /etc/my_app/application.yaml）
                 candidate = env_path
 
+            candidate = ensure_yaml_config_file(candidate)
             if candidate.exists():
                 return candidate
             raise FileNotFoundError(
@@ -62,6 +83,7 @@ class YamlConfigReader:
         current = Path(__file__).resolve()
         for parent in [current] + list(current.parents):
             candidate = parent / yaml_path
+            candidate = ensure_yaml_config_file(candidate)
             if candidate.exists():
                 return candidate
 

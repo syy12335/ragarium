@@ -6,7 +6,7 @@ from typing import Any, Dict
 
 import yaml
 
-from utils import YamlConfigReader
+from utils import YamlConfigReader, ensure_yaml_config_file
 
 
 DEFAULT_CHUNK_SIZE = 900
@@ -14,6 +14,7 @@ DEFAULT_CHUNK_OVERLAP = 120
 
 
 def _read_yaml(path: Path) -> Dict[str, Any]:
+    path = ensure_yaml_config_file(path)
     if not path.exists():
         return {}
     with path.open("r", encoding="utf-8") as file:
@@ -22,6 +23,7 @@ def _read_yaml(path: Path) -> Dict[str, Any]:
 
 
 def _write_yaml(path: Path, data: Dict[str, Any]) -> None:
+    path = ensure_yaml_config_file(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as file:
         yaml.safe_dump(data, file, allow_unicode=True, sort_keys=False)
