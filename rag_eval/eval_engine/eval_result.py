@@ -40,7 +40,7 @@ class EvalResult:
         ragas.evaluate 返回的原始结果对象，保留以便深度调试或二次处理。
     """
 
-    overall: Dict[str, float]
+    overall: Dict[str, Optional[float]]
     per_sample: pd.DataFrame
     dataset: Dataset
     csv_path: Optional[str] = None

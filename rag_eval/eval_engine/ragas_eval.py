@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Sequence
 
+import math
 import os
 
 from datasets import Dataset, Features, Sequence as HFSequence, Value
@@ -16,8 +17,8 @@ from ragas.metrics import (
 from ragas.llms import LangchainLLMWrapper
 from ragas.embeddings import LangchainEmbeddingsWrapper
 
-from langchain_community.chat_models import ChatTongyi
 from langchain_community.embeddings import DashScopeEmbeddings
+from langchain_openai import ChatOpenAI
 
 import pandas as pd
 
@@ -156,23 +157,24 @@ def _build_ragas_components(config: YamlConfigReader):
     eval_temperature = roles_cfg.get("evaluation.temperature", 0)
     eval_max_tokens = roles_cfg.get("evaluation.max_tokens", 1024)
 
-    # 3. 当前实现仅支持 Qwen / DashScope 体系
+    # 3. RAGAS embedding 继续使用 DashScope；Judge LLM 则走统一 OpenAI 兼容接口，
+    #    与 Answer 节点保持一致，避免同一个模型在不同 SDK 下表现不一致。
     if emb_provider != "qwen":
         raise NotImplementedError(
             "当前 RAGAS embedding backend 仅支持 provider='qwen'，"
             f"检测到 embedding.provider={emb_provider}。"
         )
 
-    if eval_provider != "qwen":
-        raise NotImplementedError(
-            "当前 RAGAS LLM backend 仅支持 provider='qwen'，"
-            f"检测到 evaluation.provider={eval_provider}。"
-        )
-
     # 4. 从 application.yaml.llm.<provider> 读取 API Key 环境变量名
     llm_section_key = f"llm.{eval_provider}"
     api_key_env = config.get(f"{llm_section_key}.api_key_env") or "API_KEY_QWEN"
+    base_url = config.get(f"{llm_section_key}.base_url")
     api_key = os.environ.get(api_key_env)
+    if not base_url:
+        raise ValueError(
+            f"未在 application.yaml 中找到 {llm_section_key}.base_url，"
+            "请先配置该 Provider 的 Base URL。"
+        )
     if not api_key:
         raise ValueError(
             f"未在环境变量 {api_key_env} 中找到 API Key，"
@@ -181,11 +183,13 @@ def _build_ragas_components(config: YamlConfigReader):
 
     # 5. 构造 RAGAS 用的 LLM 与 Embedding 封装
     llm = LangchainLLMWrapper(
-        ChatTongyi(
-            dashscope_api_key=api_key,
+        ChatOpenAI(
+            base_url=base_url,
+            api_key=api_key,
             model=eval_model_name,
             temperature=eval_temperature,
             max_tokens=eval_max_tokens,
+            extra_body={"enable_thinking": False} if eval_provider == "qwen" else None,
         )
     )
 
@@ -269,20 +273,24 @@ def run_ragas_evaluation(
     df.to_csv(csv_path, index=False, encoding="utf-8-sig")
     print(f"[ragas_eval] 已将评估结果写入：{csv_path}")
 
-    overall: Dict[str, float] = {}
+    overall: Dict[str, Optional[float]] = {}
     for m in metrics:
         name = getattr(m, "name", None)
         if name is None:
             continue
+        raw_value = None
         try:
-            overall[name] = float(result[name])
+            raw_value = result[name]
         except Exception:
-            value = result.get(name)
-            if value is not None:
-                try:
-                    overall[name] = float(value)
-                except Exception:
-                    pass
+            raw_value = result.get(name)
+        if raw_value is None:
+            overall[name] = None
+            continue
+        try:
+            value = float(raw_value)
+            overall[name] = value if math.isfinite(value) else None
+        except Exception:
+            overall[name] = None
 
     eval_result = EvalResult(
         overall=overall,
