@@ -60,6 +60,7 @@ function cloneGraph(graph) {
 export function WorkflowPage({ remote, runTask }) {
   const [templates, setTemplates] = useState([]);
   const [viewMode, setViewMode] = useState('landing');
+  const [debugBackView, setDebugBackView] = useState('debugList');
   const [starterTemplateId, setStarterTemplateId] = useState(DEFAULT_TEMPLATE_ID);
   const [workflowName, setWorkflowName] = useState('未命名 Graph');
   const [workflowId, setWorkflowId] = useState('');
@@ -67,7 +68,6 @@ export function WorkflowPage({ remote, runTask }) {
   const [edges, setEdges] = useState([]);
   const [selectedNodeId, setSelectedNodeId] = useState('');
   const [flowInstance, setFlowInstance] = useState(null);
-  const [mainView, setMainView] = useState('canvas');
   const [startInputs, setStartInputs] = useState({});
   const [validationResult, setValidationResult] = useState(null);
   const [queryNodeResult, setQueryNodeResult] = useState(null);
@@ -137,13 +137,12 @@ export function WorkflowPage({ remote, runTask }) {
     setNodes(nextGraph.nodes);
     setEdges(nextGraph.edges);
     setSelectedNodeId(nextGraph.nodes[0]?.id || '');
-    setMainView('canvas');
     setStartInputs({});
     clearRunState();
     setViewMode('editor');
   }
 
-  function loadWorkflow(id) {
+  async function loadWorkflow(id, targetView = 'editor', returnView = 'landing') {
     if (!id) {
       return;
     }
@@ -158,10 +157,25 @@ export function WorkflowPage({ remote, runTask }) {
     setNodes(nextGraph.nodes);
     setEdges(nextGraph.edges);
     setSelectedNodeId(nextGraph.nodes[0]?.id || '');
-    setMainView('canvas');
     setStartInputs({});
     clearRunState();
-    setViewMode('editor');
+    setViewMode(targetView);
+    if (targetView === 'debug') {
+      setDebugBackView(returnView);
+      const result = await api.validateWorkflow({ name: workflow.name || '未命名 Graph', graph: nextGraph });
+      setValidationResult(result);
+    }
+    return { workflow, returnView };
+  }
+
+  async function debugCurrentWorkflow() {
+    const saved = await saveCurrentWorkflow();
+    clearRunState();
+    const result = await api.validateWorkflow({ name: saved.name || workflowName || '未命名 Graph', graph: saved.graph || graph });
+    setValidationResult(result);
+    setDebugBackView('editor');
+    setViewMode('debug');
+    return saved;
   }
 
   function addNode(type, position = null) {
@@ -333,7 +347,6 @@ export function WorkflowPage({ remote, runTask }) {
   function returnToLanding() {
     setViewMode('landing');
     setSelectedNodeId('');
-    setMainView('canvas');
     clearRunState();
   }
 
@@ -342,6 +355,7 @@ export function WorkflowPage({ remote, runTask }) {
       <WorkflowLanding
         onChooseLoad={() => setViewMode('load')}
         onChooseNew={() => setViewMode('new')}
+        onChooseDebug={() => setViewMode('debugList')}
       />
     );
   }
@@ -351,7 +365,17 @@ export function WorkflowPage({ remote, runTask }) {
       <WorkflowLoadEntry
         workflows={remote.workflows}
         onBack={() => setViewMode('landing')}
-        onLoad={loadWorkflow}
+        onEdit={(id) => loadWorkflow(id, 'editor')}
+      />
+    );
+  }
+
+  if (viewMode === 'debugList') {
+    return (
+      <WorkflowDebugEntry
+        workflows={remote.workflows}
+        onBack={() => setViewMode('landing')}
+        onDebug={(id) => runTask('打开 Graph 调试', () => loadWorkflow(id, 'debug', 'debugList'))}
       />
     );
   }
@@ -366,6 +390,30 @@ export function WorkflowPage({ remote, runTask }) {
     );
   }
 
+  if (viewMode === 'debug') {
+    return (
+      <WorkflowDebugPage
+        workflowName={workflowName}
+        workflowId={workflowId}
+        nodes={nodes}
+        fields={startFields}
+        values={startInputs}
+        onChange={updateStartInput}
+        testRun={testRun}
+        isRunning={isTestRunning}
+        onRun={startGraphTest}
+        selectedNodeId={selectedNodeId}
+        onSelectNode={setSelectedNodeId}
+        validationResult={validationResult}
+        backLabel={debugBackView === 'editor' ? '返回编辑器' : '返回调试列表'}
+        onBack={() => {
+          clearRunState();
+          setViewMode(debugBackView);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="workflow-editor-shell">
       <div className="editor-header">
@@ -376,6 +424,9 @@ export function WorkflowPage({ remote, runTask }) {
           <strong>{workflowName || '未命名 Graph'}</strong>
           <span>{workflowId ? `Graph #${workflowId}` : '未保存草稿'}</span>
         </div>
+        <Button icon={Play} onClick={() => runTask('保存并打开调试', debugCurrentWorkflow)}>
+          调试
+        </Button>
       </div>
 
       <div className="workflow-layout graph-editor-layout">
@@ -400,67 +451,34 @@ export function WorkflowPage({ remote, runTask }) {
         </div>
         </Panel>
 
-        <div className="workflow-main-area">
-          <div className="workflow-main-toolbar">
-            <div className="segmented-tabs">
-              <button className={mainView === 'canvas' ? 'active' : ''} onClick={() => setMainView('canvas')}>
-                画布
-              </button>
-              <button className={mainView === 'debug' ? 'active' : ''} onClick={() => setMainView('debug')}>
-                调试
-              </button>
-            </div>
-            {testRun ? (
-              <span className="workflow-run-summary">
-                {isTestRunning && testRun.current_node_type
-                  ? `当前：${nodeLabel(testRun.current_node_type)}`
-                  : `测试：${traceStatusLabel(testRun.status)}`}
-              </span>
-            ) : null}
-          </div>
-          {mainView === 'canvas' ? (
-            <div className="canvas-panel" onDrop={onDrop} onDragOver={onDragOver}>
-              <ReactFlow
-                nodes={flowNodes}
-                edges={edges}
-                nodeTypes={nodeTypes}
-                onInit={setFlowInstance}
-                onNodesChange={handleNodesChange}
-                onEdgesChange={handleEdgesChange}
-                onConnect={(params) => {
-                  clearRunState();
-                  setEdges((current) =>
-                    addEdge(
-                      {
-                        ...params,
-                        id: `${params.source}-${params.target}-${Date.now()}`,
-                        animated: false,
-                      },
-                      current,
-                    ),
-                  );
-                }}
-                onNodeClick={(_, node) => setSelectedNodeId(node.id)}
-                onPaneClick={() => setSelectedNodeId('')}
-                fitView
-              >
-                <Background />
-                <Controls />
-              </ReactFlow>
-            </div>
-          ) : (
-            <GraphDebugWorkspace
-              nodes={nodes}
-              fields={startFields}
-              values={startInputs}
-              onChange={updateStartInput}
-              testRun={testRun}
-              isRunning={isTestRunning}
-              onRun={startGraphTest}
-              selectedNodeId={selectedNodeId}
-              onSelectNode={setSelectedNodeId}
-            />
-          )}
+        <div className="canvas-panel" onDrop={onDrop} onDragOver={onDragOver}>
+          <ReactFlow
+            nodes={flowNodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            onInit={setFlowInstance}
+            onNodesChange={handleNodesChange}
+            onEdgesChange={handleEdgesChange}
+            onConnect={(params) => {
+              clearRunState();
+              setEdges((current) =>
+                addEdge(
+                  {
+                    ...params,
+                    id: `${params.source}-${params.target}-${Date.now()}`,
+                    animated: false,
+                  },
+                  current,
+                ),
+              );
+            }}
+            onNodeClick={(_, node) => setSelectedNodeId(node.id)}
+            onPaneClick={() => setSelectedNodeId('')}
+            fitView
+          >
+            <Background />
+            <Controls />
+          </ReactFlow>
         </div>
 
         <Panel title="参数配置" className="inspector-panel" actions={<Settings size={17} />}>
@@ -483,12 +501,6 @@ export function WorkflowPage({ remote, runTask }) {
             </div>
           ) : null}
 
-          <DebugShortcut
-            testRun={testRun}
-            isRunning={isTestRunning}
-            onOpen={() => setMainView('debug')}
-          />
-
           <NodeInspector
             node={selectedNode}
             remote={remote}
@@ -504,28 +516,46 @@ export function WorkflowPage({ remote, runTask }) {
   );
 }
 
-function WorkflowLanding({ onChooseLoad, onChooseNew }) {
+function WorkflowLanding({ onChooseLoad, onChooseNew, onChooseDebug }) {
   return (
-    <div className="data-entry-grid">
-      <button className="data-entry-card large" onClick={onChooseLoad}>
-        <ListChecks size={42} />
+    <div className="workflow-home-grid">
+      <section className="workflow-home-card">
+        <div className="workflow-home-card-head">
+          <ListChecks size={42} />
+          <span>
+            <strong>编辑 Graph</strong>
+            <small>创建或加载 Graph，在画布里调整节点、连线和参数。</small>
+          </span>
+        </div>
+        <div className="workflow-home-actions">
+          <button className="workflow-home-action" onClick={onChooseLoad}>
+            <ListChecks size={22} />
+            <span>
+              <strong>加载 Graph</strong>
+              <small>打开已保存 Graph 继续编辑。</small>
+            </span>
+          </button>
+          <button className="workflow-home-action" onClick={onChooseNew}>
+            <Plus size={22} />
+            <span>
+              <strong>新建 Graph</strong>
+              <small>从空白或模板开始创建。</small>
+            </span>
+          </button>
+        </div>
+      </section>
+      <button className="workflow-home-card workflow-home-card-button" onClick={onChooseDebug}>
+        <Play size={42} />
         <span>
-          <strong>加载已有 Graph</strong>
-          <small>打开已经保存的 graph，继续编辑、校验或执行。</small>
-        </span>
-      </button>
-      <button className="data-entry-card large" onClick={onChooseNew}>
-        <Plus size={42} />
-        <span>
-          <strong>新建 Graph</strong>
-          <small>从空白 graph 或模板开始，再自由添加节点和连线。</small>
+          <strong>调试 Graph</strong>
+          <small>选择已保存 Graph，端到端测试输入、输出和节点流转。</small>
         </span>
       </button>
     </div>
   );
 }
 
-function WorkflowLoadEntry({ workflows, onBack, onLoad }) {
+function WorkflowLoadEntry({ workflows, onBack, onEdit }) {
   return (
     <div className="workflow-entry-page">
       <div className="editor-header">
@@ -533,15 +563,15 @@ function WorkflowLoadEntry({ workflows, onBack, onLoad }) {
           返回
         </Button>
         <div>
-          <strong>加载已有 Graph</strong>
-          <span>选择一个已保存 graph 进入画布。</span>
+          <strong>加载 Graph</strong>
+          <span>选择一个已保存 graph 进入画布编辑。</span>
         </div>
       </div>
-      <Panel title="加载已有 Graph">
+      <Panel title="加载 Graph">
         {workflows.length ? (
           <div className="graph-entry-list">
             {workflows.map((workflow) => (
-              <button className="graph-entry-card" key={workflow.id} onClick={() => onLoad(String(workflow.id))}>
+              <button className="graph-entry-card" key={workflow.id} onClick={() => onEdit(String(workflow.id))}>
                 <span>
                   <strong>{workflow.name}</strong>
                   <small>Graph #{workflow.id} · {workflow.executable ? '可执行' : '草稿'}</small>
@@ -552,6 +582,39 @@ function WorkflowLoadEntry({ workflows, onBack, onLoad }) {
           </div>
         ) : (
           <EmptyState title="暂无 Graph" body="返回后选择新建 Graph。" />
+        )}
+      </Panel>
+    </div>
+  );
+}
+
+function WorkflowDebugEntry({ workflows, onBack, onDebug }) {
+  return (
+    <div className="workflow-entry-page">
+      <div className="editor-header">
+        <Button icon={ArrowLeft} variant="secondary" onClick={onBack}>
+          返回
+        </Button>
+        <div>
+          <strong>调试 Graph</strong>
+          <span>选择一个已保存 graph，进入端到端测试。</span>
+        </div>
+      </div>
+      <Panel title="调试 Graph">
+        {workflows.length ? (
+          <div className="graph-entry-list">
+            {workflows.map((workflow) => (
+              <button className="graph-entry-card" key={workflow.id} onClick={() => onDebug(String(workflow.id))}>
+                <span>
+                  <strong>{workflow.name}</strong>
+                  <small>Graph #{workflow.id} · {workflow.executable ? '可执行' : '草稿'}</small>
+                </span>
+                {workflow.executable ? <StatusPill status="ready" /> : <StatusPill status="failed" />}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <EmptyState title="暂无 Graph" body="返回后先新建或保存一个 Graph。" />
         )}
       </Panel>
     </div>
@@ -585,6 +648,56 @@ function WorkflowNewEntry({ templates, onBack, onCreate }) {
           <EmptyState title="模板加载中" body="请稍后刷新，或先检查后端服务。" />
         )}
       </Panel>
+    </div>
+  );
+}
+
+function WorkflowDebugPage({
+  workflowName,
+  workflowId,
+  nodes,
+  fields,
+  values,
+  onChange,
+  testRun,
+  isRunning,
+  onRun,
+  selectedNodeId,
+  onSelectNode,
+  validationResult,
+  backLabel,
+  onBack,
+}) {
+  const canRun = validationResult?.ok !== false;
+  return (
+    <div className="workflow-debug-page">
+      <div className="editor-header">
+        <Button icon={ArrowLeft} variant="secondary" onClick={onBack}>
+          {backLabel}
+        </Button>
+        <div>
+          <strong>{workflowName || '未命名 Graph'}</strong>
+          <span>{workflowId ? `Graph #${workflowId} · 端到端调试` : '端到端调试'}</span>
+        </div>
+      </div>
+      {validationResult?.ok === false ? (
+        <div className="hint-box error-box">
+          <strong>当前 Graph 暂不可调试</strong>
+          <span>{validationResult.error}</span>
+        </div>
+      ) : null}
+      <GraphDebugWorkspace
+        nodes={nodes}
+        fields={fields}
+        values={values}
+        onChange={onChange}
+        testRun={testRun}
+        isRunning={isRunning}
+        onRun={onRun}
+        selectedNodeId={selectedNodeId}
+        onSelectNode={onSelectNode}
+        disabled={!canRun}
+      />
     </div>
   );
 }
@@ -647,20 +760,6 @@ function formatContext(context) {
   return String(context ?? '');
 }
 
-function DebugShortcut({ testRun, isRunning, onOpen }) {
-  return (
-    <div className="debug-shortcut-card">
-      <span>
-        <strong>端到端调试</strong>
-        <small>测试窗口在中间主区域；可查看节点流转和输入/输出。</small>
-      </span>
-      <Button icon={Play} variant="secondary" onClick={onOpen}>
-        {isRunning ? '查看调试' : testRun ? '查看结果' : '去调试'}
-      </Button>
-    </div>
-  );
-}
-
 function GraphDebugWorkspace({
   nodes,
   fields,
@@ -671,6 +770,7 @@ function GraphDebugWorkspace({
   onRun,
   selectedNodeId,
   onSelectNode,
+  disabled = false,
 }) {
   const trace = testRun?.trace || [];
   const currentNode = testRun?.current_node_type ? nodeLabel(testRun.current_node_type) : '';
@@ -698,12 +798,13 @@ function GraphDebugWorkspace({
           className="full-width test-run-button"
           loading={isRunning}
           loadingLabel="测试中"
-          disabled={missingRequired}
+          disabled={disabled || missingRequired}
           onClick={handleRun}
         >
           {buttonLabel}
         </Button>
-        {missingRequired ? <p className="test-run-hint">先补齐 Start 节点必填输入，再开始测试。</p> : null}
+        {disabled ? <p className="test-run-hint">当前 Graph 未通过运行前校验，修复后再调试。</p> : null}
+        {!disabled && missingRequired ? <p className="test-run-hint">先补齐 Start 节点必填输入，再开始测试。</p> : null}
         {testRun ? (
           <div className={`test-run-card test-run-${testRun.status || 'pending'}`}>
             <div className="test-run-head">

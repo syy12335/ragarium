@@ -702,6 +702,95 @@ select:focus {
   line-height: 1.5;
 }
 
+.workflow-home-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.workflow-home-card {
+  display: grid;
+  gap: 18px;
+  min-height: 188px;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  padding: 24px;
+  background: #ffffff;
+  color: #263445;
+  text-align: left;
+}
+
+.workflow-home-card-button {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  cursor: pointer;
+}
+
+.workflow-home-card-button:hover,
+.workflow-home-action:hover {
+  border-color: #2563a6;
+  background: #f3f8fc;
+}
+
+.workflow-home-card-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+}
+
+.workflow-home-card strong,
+.workflow-home-card small,
+.workflow-home-action strong,
+.workflow-home-action small {
+  display: block;
+  min-width: 0;
+}
+
+.workflow-home-card strong {
+  font-size: 26px;
+}
+
+.workflow-home-card small {
+  margin-top: 8px;
+  color: #637286;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.workflow-home-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.workflow-home-action {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 74px;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  padding: 14px;
+  background: #f8fafc;
+  color: #263445;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workflow-home-action strong {
+  font-size: 16px;
+}
+
+.workflow-home-action small {
+  margin-top: 3px;
+  color: #637286;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .data-section-shell {
   display: grid;
   gap: 12px;
@@ -2080,18 +2169,22 @@ select:focus {
   background: #ffffff;
   color: #263445;
   text-align: left;
-  cursor: pointer;
 }
 
 .graph-entry-card {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+  cursor: pointer;
 }
 
 .graph-entry-card:hover,
 .graph-template-card:hover {
   border-color: #2563a6;
   background: #f3f8fc;
+}
+
+.graph-template-card {
+  cursor: pointer;
 }
 
 .graph-entry-card strong,
@@ -2129,7 +2222,9 @@ select:focus {
 
 .editor-header > div {
   display: grid;
+  flex: 1;
   gap: 2px;
+  min-width: 0;
 }
 
 .editor-header strong,
@@ -2268,52 +2363,9 @@ select:focus {
   background: #ffffff;
 }
 
-.workflow-main-area {
+.workflow-debug-page {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 10px;
-  min-width: 0;
-}
-
-.workflow-main-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 40px;
-}
-
-.segmented-tabs {
-  display: inline-flex;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  padding: 3px;
-  background: #ffffff;
-}
-
-.segmented-tabs button {
-  min-height: 30px;
-  border: 0;
-  border-radius: 6px;
-  padding: 0 14px;
-  background: transparent;
-  color: #526174;
-  font-weight: 800;
-  cursor: pointer;
-}
-
-.segmented-tabs button.active {
-  background: #2563a6;
-  color: #ffffff;
-}
-
-.workflow-run-summary {
-  overflow: hidden;
-  color: #526174;
-  font-size: 13px;
-  font-weight: 800;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  gap: 14px;
 }
 
 .flow-node {
@@ -2927,6 +2979,7 @@ pre {
   .retrieval-test-form,
   .config-layout,
   .workflow-entry-layout,
+  .workflow-home-grid,
   .workflow-layout,
   .graph-editor-layout {
     grid-template-columns: 1fr;
@@ -3030,7 +3083,6 @@ pre {
   .runtime-card,
   .runtime-compact-card,
   .endpoint-list,
-  .debug-shortcut-card,
   .graph-io-grid,
   .graph-debug-workspace,
   .db-summary,
@@ -3038,20 +3090,12 @@ pre {
   .deploy-summary,
   .prerequisite-card,
   .data-entry-grid,
+  .workflow-home-actions,
   .template-grid,
   .graph-template-grid,
   .result-summary,
   .field-row {
     grid-template-columns: 1fr;
-  }
-
-  .workflow-main-toolbar {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .debug-shortcut-card {
-    align-items: stretch;
   }
 
   .next-step-card {
