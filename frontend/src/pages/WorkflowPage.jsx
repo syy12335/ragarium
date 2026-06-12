@@ -647,11 +647,37 @@ function formatContext(context) {
   return String(context ?? '');
 }
 
-function GraphTestPanel({ fields, values, onChange, testRun, isRunning, onRun }) {
+function DebugShortcut({ testRun, isRunning, onOpen }) {
+  return (
+    <div className="debug-shortcut-card">
+      <span>
+        <strong>端到端调试</strong>
+        <small>测试窗口在中间主区域；可查看节点流转和输入/输出。</small>
+      </span>
+      <Button icon={Play} variant="secondary" onClick={onOpen}>
+        {isRunning ? '查看调试' : testRun ? '查看结果' : '去调试'}
+      </Button>
+    </div>
+  );
+}
+
+function GraphDebugWorkspace({
+  nodes,
+  fields,
+  values,
+  onChange,
+  testRun,
+  isRunning,
+  onRun,
+  selectedNodeId,
+  onSelectNode,
+}) {
   const trace = testRun?.trace || [];
   const currentNode = testRun?.current_node_type ? nodeLabel(testRun.current_node_type) : '';
   const buttonLabel = isRunning ? '测试中' : testRun ? '重新测试' : '开始端到端测试';
   const missingRequired = fields.some((field) => field.required && !String(values[field.name] ?? field.default ?? '').trim());
+  const selectedNode = nodes.find((node) => node.id === selectedNodeId);
+  const selectedTrace = trace.find((item) => item.node_id === selectedNodeId);
   async function handleRun() {
     try {
       await onRun();
@@ -660,47 +686,90 @@ function GraphTestPanel({ fields, values, onChange, testRun, isRunning, onRun })
     }
   }
   return (
-    <div className="graph-test-panel">
-      <div>
-        <h3>Graph 测试</h3>
-        <p>输入一次真实问题，端到端跑完整个 Graph，并实时查看当前流转到哪个节点。</p>
-      </div>
-      <StartInputForm fields={fields} values={values} onChange={onChange} />
-      <Button
-        icon={Play}
-        className="full-width test-run-button"
-        loading={isRunning}
-        loadingLabel="测试中"
-        disabled={missingRequired}
-        onClick={handleRun}
-      >
-        {buttonLabel}
-      </Button>
-      {missingRequired ? <p className="test-run-hint">先补齐 Start 节点必填输入，再开始测试。</p> : null}
-      {testRun ? (
-        <div className={`test-run-card test-run-${testRun.status || 'pending'}`}>
-          <div className="test-run-head">
-            <span>{isRunning && currentNode ? `当前：${currentNode}` : `状态：${traceStatusLabel(testRun.status)}`}</span>
-            {testRun.run_id ? <small>Run {testRun.run_id.slice(0, 8)}</small> : null}
-          </div>
-          {testRun.error ? <div className="inline-error">{testRun.error}</div> : null}
-          {trace.length ? (
-            <div className="node-progress-list">
-              {trace.map((item) => (
-                <div className={`node-progress-item status-${item.status || 'pending'}`} key={item.node_id}>
-                  <span className="progress-dot" />
-                  <span>
-                    <strong>{nodeLabel(item.type)}</strong>
-                    <small>{item.duration_ms || item.duration_ms === 0 ? `${item.duration_ms}ms` : item.node_id}</small>
-                  </span>
-                  <em>{traceStatusLabel(item.status)}</em>
-                </div>
-              ))}
-            </div>
-          ) : null}
-          {testRun.outputs ? <TestRunOutput outputs={testRun.outputs} /> : null}
+    <div className="graph-debug-workspace">
+      <section className="graph-debug-runner">
+        <div>
+          <h2>端到端调试</h2>
+          <p>输入一次真实问题，跑完整个 Graph。运行时会显示当前节点；点击节点可查看该节点输入和输出。</p>
         </div>
-      ) : null}
+        <StartInputForm fields={fields} values={values} onChange={onChange} />
+        <Button
+          icon={Play}
+          className="full-width test-run-button"
+          loading={isRunning}
+          loadingLabel="测试中"
+          disabled={missingRequired}
+          onClick={handleRun}
+        >
+          {buttonLabel}
+        </Button>
+        {missingRequired ? <p className="test-run-hint">先补齐 Start 节点必填输入，再开始测试。</p> : null}
+        {testRun ? (
+          <div className={`test-run-card test-run-${testRun.status || 'pending'}`}>
+            <div className="test-run-head">
+              <span>{isRunning && currentNode ? `当前：${currentNode}` : `状态：${traceStatusLabel(testRun.status)}`}</span>
+              {testRun.run_id ? <small>Run {testRun.run_id.slice(0, 8)}</small> : null}
+            </div>
+            {testRun.error ? <div className="inline-error">{testRun.error}</div> : null}
+            {trace.length ? (
+              <div className="node-progress-list">
+                {trace.map((item) => (
+                  <button
+                    type="button"
+                    className={`node-progress-item status-${item.status || 'pending'} ${selectedNodeId === item.node_id ? 'selected' : ''}`}
+                    key={item.node_id}
+                    onClick={() => onSelectNode(item.node_id)}
+                  >
+                    <span className="progress-dot" />
+                    <span>
+                      <strong>{nodeLabel(item.type)}</strong>
+                      <small>{item.duration_ms || item.duration_ms === 0 ? `${item.duration_ms}ms` : item.node_id}</small>
+                    </span>
+                    <em>{traceStatusLabel(item.status)}</em>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {testRun.outputs ? <TestRunOutput outputs={testRun.outputs} /> : null}
+          </div>
+        ) : null}
+      </section>
+      <NodeDebugPanel node={selectedNode} traceItem={selectedTrace} />
+    </div>
+  );
+}
+
+function NodeDebugPanel({ node, traceItem }) {
+  if (!node) {
+    return (
+      <section className="node-debug-panel">
+        <EmptyState title="选择一个节点" body="在左侧进度列表或画布中点击节点，查看这次运行的输入和输出。" />
+      </section>
+    );
+  }
+  const status = traceItem?.status || 'pending';
+  return (
+    <section className="node-debug-panel">
+      <div className="node-debug-title">
+        <span>
+          <strong>{node.data?.label || nodeLabel(node.type)}</strong>
+          <small>{node.id}</small>
+        </span>
+        <StatusPill status={status} />
+      </div>
+      {traceItem?.error ? <div className="inline-error">{traceItem.error}</div> : null}
+      <DebugJsonBlock title="输入" value={traceItem?.input} emptyText="这次运行还没有进入该节点。" />
+      <DebugJsonBlock title="输出" value={traceItem?.output} emptyText={status === 'running' ? '节点正在运行，输出尚未产生。' : '暂无输出。'} />
+    </section>
+  );
+}
+
+function DebugJsonBlock({ title, value, emptyText }) {
+  const hasValue = value !== undefined && value !== null;
+  return (
+    <div className="debug-json-block">
+      <h3>{title}</h3>
+      {hasValue ? <pre>{JSON.stringify(value, null, 2)}</pre> : <p>{emptyText}</p>}
     </div>
   );
 }

@@ -2268,6 +2268,54 @@ select:focus {
   background: #ffffff;
 }
 
+.workflow-main-area {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.workflow-main-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+}
+
+.segmented-tabs {
+  display: inline-flex;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 3px;
+  background: #ffffff;
+}
+
+.segmented-tabs button {
+  min-height: 30px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 14px;
+  background: transparent;
+  color: #526174;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.segmented-tabs button.active {
+  background: #2563a6;
+  color: #ffffff;
+}
+
+.workflow-run-summary {
+  overflow: hidden;
+  color: #526174;
+  font-size: 13px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .flow-node {
   position: relative;
   display: flex;
@@ -2450,16 +2498,55 @@ select:focus {
   gap: 10px;
 }
 
-.graph-test-panel {
+.debug-shortcut-card {
   display: grid;
-  gap: 12px;
-  border: 1px solid #bfdbfe;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #d9e2ec;
   border-radius: 8px;
-  padding: 14px;
-  background: #f8fbff;
+  padding: 11px;
+  background: #fbfdff;
 }
 
-.graph-test-panel p {
+.debug-shortcut-card span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.debug-shortcut-card small {
+  color: #637286;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.graph-debug-workspace {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.95fr) minmax(320px, 1.05fr);
+  gap: 14px;
+  min-height: 650px;
+}
+
+.graph-debug-runner,
+.node-debug-panel {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  padding: 16px;
+  background: #ffffff;
+}
+
+.graph-debug-runner h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.graph-debug-runner p,
+.node-debug-panel p {
   margin: 4px 0 0;
   color: #607087;
   font-size: 13px;
@@ -2530,11 +2617,15 @@ select:focus {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
+  width: 100%;
   gap: 9px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   padding: 9px 10px;
   background: #f8fafc;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .node-progress-item > span:not(.progress-dot) {
@@ -2573,6 +2664,11 @@ select:focus {
 .node-progress-item.status-running {
   border-color: #bfdbfe;
   background: #eff6ff;
+}
+
+.node-progress-item.selected {
+  border-color: #2563a6;
+  box-shadow: 0 0 0 3px rgba(37, 99, 166, 0.12);
 }
 
 .node-progress-item.status-running .progress-dot {
@@ -2630,6 +2726,50 @@ select:focus {
   color: #263445;
   font-size: 12px;
   line-height: 1.55;
+}
+
+.node-debug-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.node-debug-title span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.node-debug-title strong {
+  color: #1f2933;
+  font-size: 16px;
+}
+
+.node-debug-title small {
+  overflow: hidden;
+  color: #637286;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.debug-json-block {
+  display: grid;
+  gap: 8px;
+}
+
+.debug-json-block h3 {
+  margin: 0;
+  color: #273446;
+  font-size: 14px;
+}
+
+.debug-json-block p {
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfdff;
 }
 
 .result {
@@ -2828,6 +2968,7 @@ pre {
   .runtime-card,
   .compact-overview,
   .deploy-summary,
+  .graph-debug-workspace,
   .data-entry-grid,
   .endpoint-list,
   .graph-io-grid,
@@ -2889,7 +3030,9 @@ pre {
   .runtime-card,
   .runtime-compact-card,
   .endpoint-list,
+  .debug-shortcut-card,
   .graph-io-grid,
+  .graph-debug-workspace,
   .db-summary,
   .compact-overview,
   .deploy-summary,
@@ -2900,6 +3043,15 @@ pre {
   .result-summary,
   .field-row {
     grid-template-columns: 1fr;
+  }
+
+  .workflow-main-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .debug-shortcut-card {
+    align-items: stretch;
   }
 
   .next-step-card {
