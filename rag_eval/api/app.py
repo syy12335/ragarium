@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import os
+import threading
+import time
+import uuid
+from copy import deepcopy
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -92,6 +97,7 @@ class EvalRunRequest(BaseModel):
 VectorBuilderFactory = Callable[[], VectorDatabaseBuilder]
 QueryGeneratorFactory = Callable[[], QueryGenerationService]
 EvalEngineFactory = Callable[[], Any]
+WorkflowProgressCallback = Callable[[Dict[str, Any]], None]
 
 
 def _default_state_root() -> Path:
@@ -104,6 +110,10 @@ def _http_error(exc: Exception) -> HTTPException:
     if isinstance(exc, (ValueError, WorkflowValidationError)):
         return HTTPException(status_code=400, detail=str(exc))
     return HTTPException(status_code=500, detail=str(exc))
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 class WorkflowRunner:
@@ -211,6 +221,168 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    workflow_test_runs: Dict[str, Dict[str, Any]] = {}
+    workflow_test_runs_lock = threading.Lock()
+
+    def workflow_test_run_snapshot(run_id: str) -> Dict[str, Any]:
+        with workflow_test_runs_lock:
+            if run_id not in workflow_test_runs:
+                raise KeyError(f"workflow test run not found: {run_id}")
+            snapshot = deepcopy(workflow_test_runs[run_id])
+        for item in snapshot.get("trace") or []:
+            item.pop("_started_monotonic", None)
+        return snapshot
+
+    def prune_workflow_test_runs() -> None:
+        with workflow_test_runs_lock:
+            if len(workflow_test_runs) <= 50:
+                return
+            removable = sorted(
+                workflow_test_runs.items(),
+                key=lambda item: item[1].get("started_at") or "",
+            )[: len(workflow_test_runs) - 50]
+            for run_id, _ in removable:
+                workflow_test_runs.pop(run_id, None)
+
+    def workflow_test_trace_items(graph: Dict[str, Any]) -> List[Dict[str, Any]]:
+        try:
+            validation = workflow_engine.validate_executable_graph(graph)
+            if validation.is_legacy:
+                return [{"node_id": "legacy_full_rag", "type": "legacy_full_rag", "status": "pending"}]
+            return [
+                {
+                    "node_id": node["id"],
+                    "type": node["type"],
+                    "status": "pending",
+                }
+                for node in validation.ordered_nodes
+            ]
+        except Exception:
+            return [
+                {
+                    "node_id": str(node.get("id") or ""),
+                    "type": str(node.get("type") or "unknown"),
+                    "status": "pending",
+                }
+                for node in graph.get("nodes") or []
+                if node.get("id")
+            ]
+
+    def update_workflow_test_run(run_id: str, patch: Dict[str, Any]) -> None:
+        with workflow_test_runs_lock:
+            if run_id not in workflow_test_runs:
+                return
+            workflow_test_runs[run_id].update(patch)
+
+    def update_workflow_test_node(
+        run_id: str,
+        *,
+        node_id: str,
+        node_type: str,
+        status: str,
+        node_input: Optional[Dict[str, Any]] = None,
+        output: Optional[Dict[str, Any]] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        now = _utc_now()
+        with workflow_test_runs_lock:
+            run = workflow_test_runs.get(run_id)
+            if not run:
+                return
+            trace = run.setdefault("trace", [])
+            item = next((entry for entry in trace if entry.get("node_id") == node_id), None)
+            if item is None:
+                item = {"node_id": node_id, "type": node_type, "status": "pending"}
+                trace.append(item)
+            item["type"] = node_type
+            item["status"] = status
+            if status == "running":
+                item["started_at"] = now
+                item["_started_monotonic"] = time.monotonic()
+                run["current_node_id"] = node_id
+                run["current_node_type"] = node_type
+            else:
+                item["finished_at"] = now
+                started = item.pop("_started_monotonic", None)
+                if started is not None:
+                    item["duration_ms"] = int((time.monotonic() - float(started)) * 1000)
+            if node_input is not None:
+                item["input"] = node_input
+            if output is not None:
+                item["output"] = output
+            if error is not None:
+                item["error"] = error
+            if status == "failed":
+                run["current_node_id"] = node_id
+                run["current_node_type"] = node_type
+
+    def workflow_test_progress_callback(run_id: str) -> WorkflowProgressCallback:
+        def callback(event: Dict[str, Any]) -> None:
+            event_type = event.get("event")
+            node_id = str(event.get("node_id") or "")
+            node_type = str(event.get("type") or "unknown")
+            if not node_id:
+                return
+            if event_type == "node_started":
+                update_workflow_test_node(
+                    run_id,
+                    node_id=node_id,
+                    node_type=node_type,
+                    status="running",
+                    node_input=event.get("input") or {},
+                )
+            elif event_type == "node_completed":
+                update_workflow_test_node(
+                    run_id,
+                    node_id=node_id,
+                    node_type=node_type,
+                    status="completed",
+                    output=event.get("output") or {},
+                )
+            elif event_type == "node_failed":
+                update_workflow_test_node(
+                    run_id,
+                    node_id=node_id,
+                    node_type=node_type,
+                    status="failed",
+                    error=str(event.get("error") or "failed"),
+                )
+
+        return callback
+
+    def run_workflow_test_in_background(
+        run_id: str,
+        workflow: Dict[str, Any],
+        inputs: Dict[str, Any],
+    ) -> None:
+        try:
+            result = execute_workflow(
+                workflow,
+                inputs=inputs,
+                progress_callback=workflow_test_progress_callback(run_id),
+            )
+            update_workflow_test_run(
+                run_id,
+                {
+                    "status": "completed",
+                    "current_node_id": None,
+                    "current_node_type": None,
+                    "outputs": result.get("outputs") or {},
+                    "metadata": result.get("metadata") or {"workflow_id": workflow["id"]},
+                    "finished_at": _utc_now(),
+                },
+            )
+        except Exception as exc:
+            update_workflow_test_run(
+                run_id,
+                {
+                    "status": "failed",
+                    "error": str(exc),
+                    "finished_at": _utc_now(),
+                    "metadata": {"workflow_id": workflow["id"]},
+                },
+            )
 
     @app.get("/api/health")
     def health() -> Dict[str, str]:
@@ -1123,6 +1295,20 @@ def create_app(
         )
 
     def summarize_node_output(node_type: str, state: Dict[str, Any]) -> Dict[str, Any]:
+        if node_type == "start":
+            return {
+                "keys": sorted(state.keys()),
+                "question": state.get("question"),
+            }
+        if node_type == "source":
+            return {
+                "knowledge_base_id": state.get("knowledge_base_id"),
+                "collection_name": state.get("collection_name"),
+            }
+        if node_type == "parse":
+            return {"parser": state.get("parser")}
+        if node_type == "chunk":
+            return {"chunk_config": state.get("chunk_config")}
         if node_type == "embed_index":
             result = state.get("index_result") or {}
             return {
@@ -1148,6 +1334,19 @@ def create_app(
                 "answer": state.get("answer"),
                 "context_count": len(state.get("contexts") or []),
             }
+        if node_type == "retrieve":
+            return {
+                "knowledge_base_id": state.get("knowledge_base_id"),
+                "top_k": state.get("top_k"),
+                "question": state.get("question"),
+                "query_count": len(state.get("queries") or []),
+            }
+        if node_type == "prompt_llm":
+            prompt = state.get("prompt") or ""
+            return {
+                "prompt_length": len(prompt),
+                "has_custom_prompt": bool(prompt),
+            }
         if node_type == "ragas_eval":
             eval_run = state.get("eval_run") or {}
             return {
@@ -1155,7 +1354,78 @@ def create_app(
                 "status": eval_run.get("status"),
                 "metrics": eval_run.get("metrics"),
             }
+        if node_type == "end":
+            outputs = state.get("outputs") or {}
+            return {
+                "output_keys": sorted(outputs.keys()),
+            }
         return {"ok": True}
+
+    def summarize_node_input(
+        node_type: str,
+        node: Dict[str, Any],
+        state: Dict[str, Any],
+        inputs: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        data = node.get("data") or {}
+        if node_type == "start":
+            return {"inputs": inputs}
+        if node_type == "source":
+            return {"knowledge_base_id": data.get("knowledgeBaseId")}
+        if node_type == "parse":
+            return {
+                "knowledge_base_id": state.get("knowledge_base_id"),
+                "collection_name": state.get("collection_name"),
+            }
+        if node_type == "chunk":
+            return {
+                "configured_chunk_size": data.get("chunkSize"),
+                "configured_chunk_overlap": data.get("chunkOverlap"),
+            }
+        if node_type == "embed_index":
+            return {
+                "knowledge_base_id": state.get("knowledge_base_id"),
+                "chunk_config": state.get("chunk_config"),
+                "overwrite": data.get("overwrite", True) is not False,
+            }
+        if node_type == "query_generate":
+            return {
+                "knowledge_base_id": data.get("knowledgeBaseId"),
+                "example_count": len(data.get("examples") or []),
+                "target_count": data.get("targetCount"),
+                "name": data.get("name"),
+            }
+        if node_type == "retrieve":
+            return {
+                "knowledge_base_id": data.get("knowledgeBaseId") or state.get("knowledge_base_id"),
+                "question": state.get("question"),
+                "query_count": len(state.get("queries") or []),
+                "top_k": data.get("topK") or state.get("top_k"),
+            }
+        if node_type == "prompt_llm":
+            return {
+                "question": state.get("question"),
+                "query_count": len(state.get("queries") or []),
+                "prompt_preview": (data.get("prompt") or "")[:240],
+            }
+        if node_type == "answer":
+            return {
+                "question": state.get("question"),
+                "query_count": len(state.get("queries") or []),
+                "knowledge_base_id": state.get("knowledge_base_id"),
+                "top_k": state.get("top_k"),
+            }
+        if node_type == "ragas_eval":
+            return {
+                "query_set_id": (state.get("query_set") or {}).get("id"),
+                "answer_count": state.get("answer_count"),
+            }
+        if node_type == "end":
+            return {
+                "state_keys": sorted(key for key in state.keys() if not key.startswith("_")),
+                "configured_outputs": (node.get("data") or {}).get("outputs") or [],
+            }
+        return {"state_keys": sorted(key for key in state.keys() if not key.startswith("_"))}
 
     def default_end_outputs(state: Dict[str, Any]) -> Dict[str, Any]:
         outputs: Dict[str, Any] = {}
@@ -1190,7 +1460,11 @@ def create_app(
             collected[name] = state.get(source)
         return collected
 
-    def execute_workflow(workflow: Dict[str, Any], inputs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def execute_workflow(
+        workflow: Dict[str, Any],
+        inputs: Optional[Dict[str, Any]] = None,
+        progress_callback: Optional[WorkflowProgressCallback] = None,
+    ) -> Dict[str, Any]:
         graph = workflow["graph"]
         validation = workflow_engine.validate_executable_graph(graph)
         if validation.is_legacy:
@@ -1201,13 +1475,47 @@ def create_app(
             kb = store.get_knowledge_base(kb_id)
             if kb["index_status"] != "ready":
                 raise ValueError("knowledge base index is not ready")
-            result = workflow_engine.run_question(
-                graph,
-                question=str(question),
-                vector_manager=vector_builder_factory().manager,
-                collection_name=kb["collection_name"],
-                config_path=config_path,
-            )
+            if progress_callback:
+                progress_callback(
+                    {
+                        "event": "node_started",
+                        "node_id": "legacy_full_rag",
+                        "type": "legacy_full_rag",
+                        "input": {"question": str(question), "knowledge_base_id": kb_id},
+                    }
+                )
+            try:
+                result = workflow_engine.run_question(
+                    graph,
+                    question=str(question),
+                    vector_manager=vector_builder_factory().manager,
+                    collection_name=kb["collection_name"],
+                    config_path=config_path,
+                )
+            except Exception as exc:
+                if progress_callback:
+                    progress_callback(
+                        {
+                            "event": "node_failed",
+                            "node_id": "legacy_full_rag",
+                            "type": "legacy_full_rag",
+                            "error": str(exc),
+                        }
+                    )
+                raise
+            if progress_callback:
+                progress_callback(
+                    {
+                        "event": "node_completed",
+                        "node_id": "legacy_full_rag",
+                        "type": "legacy_full_rag",
+                        "output": {
+                            "question": result.get("question"),
+                            "answer": result.get("answer") or result.get("generation"),
+                            "context_count": len(result.get("contexts") or []),
+                        },
+                    }
+                )
             return {
                 "workflow_id": workflow["id"],
                 "outputs": result,
@@ -1221,115 +1529,146 @@ def create_app(
             node_id = node["id"]
             node_type = node["type"]
             data = node.get("data") or {}
+            if progress_callback:
+                progress_callback(
+                    {
+                        "event": "node_started",
+                        "node_id": node_id,
+                        "type": node_type,
+                        "input": summarize_node_input(node_type, node, state, inputs or {}),
+                    }
+                )
 
-            if node_type == "start":
-                state.update(workflow_engine.resolve_start_inputs(graph, inputs or {}))
-            elif node_type == "source":
-                kb_id = workflow_engine.get_source_knowledge_base_id_from_validation(validation)
-                kb = store.get_knowledge_base(kb_id)
-                state["knowledge_base_id"] = kb_id
-                state["collection_name"] = kb["collection_name"]
-            elif node_type == "parse":
-                state["parser"] = data.get("parser") or "auto"
-            elif node_type == "chunk":
-                state["chunk_config"] = workflow_engine.get_chunk_config_from_validation(validation)
-            elif node_type == "embed_index":
-                kb_id = state.get("knowledge_base_id")
-                if not kb_id:
-                    raise WorkflowValidationError("Embed / Index node requires upstream Source DB")
-                chunk_config = state.get("chunk_config") or {"chunk_size": 900, "chunk_overlap": 120}
-                store.update_knowledge_base_index_status(
-                    kb_id,
-                    status="processing",
-                    error=None,
-                    chunk_config=chunk_config,
-                )
-                ingestion_service.reprocess_knowledge_base_sources(
-                    kb_id,
-                    chunk_size=chunk_config["chunk_size"],
-                    chunk_overlap=chunk_config["chunk_overlap"],
-                )
-                index_result = build_knowledge_base_index(
-                    kb_id,
-                    overwrite=data.get("overwrite", True) is not False,
-                    chunk_config=chunk_config,
-                )
-                state["index_result"] = index_result
-            elif node_type == "query_generate":
-                query_set = run_query_generate_node_for_workflow(workflow, node_id=node_id)
-                state["query_set"] = query_set
-                state["queries"] = query_set["queries"]
-                state["knowledge_base_id"] = query_set["knowledge_base_id"]
-            elif node_type == "retrieve":
-                kb_id = workflow_engine.get_retrieve_knowledge_base_id_from_validation(validation, required=False)
-                if kb_id is not None:
+            try:
+                if node_type == "start":
+                    state.update(workflow_engine.resolve_start_inputs(graph, inputs or {}))
+                elif node_type == "source":
+                    kb_id = workflow_engine.get_source_knowledge_base_id_from_validation(validation)
+                    kb = store.get_knowledge_base(kb_id)
                     state["knowledge_base_id"] = kb_id
-                if "knowledge_base_id" not in state:
-                    raise WorkflowValidationError("Retrieve node requires selected or upstream knowledge DB")
-                state["top_k"] = workflow_engine.get_top_k_from_validation(validation)
-            elif node_type == "prompt_llm":
-                state["prompt"] = data.get("prompt") or ""
-            elif node_type == "answer":
-                if state.get("queries"):
+                    state["collection_name"] = kb["collection_name"]
+                elif node_type == "parse":
+                    state["parser"] = data.get("parser") or "auto"
+                elif node_type == "chunk":
+                    state["chunk_config"] = workflow_engine.get_chunk_config_from_validation(validation)
+                elif node_type == "embed_index":
+                    kb_id = state.get("knowledge_base_id")
+                    if not kb_id:
+                        raise WorkflowValidationError("Embed / Index node requires upstream Source DB")
+                    chunk_config = state.get("chunk_config") or {"chunk_size": 900, "chunk_overlap": 120}
+                    store.update_knowledge_base_index_status(
+                        kb_id,
+                        status="processing",
+                        error=None,
+                        chunk_config=chunk_config,
+                    )
+                    ingestion_service.reprocess_knowledge_base_sources(
+                        kb_id,
+                        chunk_size=chunk_config["chunk_size"],
+                        chunk_overlap=chunk_config["chunk_overlap"],
+                    )
+                    index_result = build_knowledge_base_index(
+                        kb_id,
+                        overwrite=data.get("overwrite", True) is not False,
+                        chunk_config=chunk_config,
+                    )
+                    state["index_result"] = index_result
+                elif node_type == "query_generate":
+                    query_set = run_query_generate_node_for_workflow(workflow, node_id=node_id)
+                    state["query_set"] = query_set
+                    state["queries"] = query_set["queries"]
+                    state["knowledge_base_id"] = query_set["knowledge_base_id"]
+                elif node_type == "retrieve":
+                    kb_id = workflow_engine.get_retrieve_knowledge_base_id_from_validation(validation, required=False)
+                    if kb_id is not None:
+                        state["knowledge_base_id"] = kb_id
+                    if "knowledge_base_id" not in state:
+                        raise WorkflowValidationError("Retrieve node requires selected or upstream knowledge DB")
+                    state["top_k"] = workflow_engine.get_top_k_from_validation(validation)
+                elif node_type == "prompt_llm":
+                    state["prompt"] = data.get("prompt") or ""
+                elif node_type == "answer":
+                    if state.get("queries"):
+                        query_set = state.get("query_set")
+                        if not query_set:
+                            raise WorkflowValidationError("Answer node requires upstream Query Generate for batch answers")
+                        answer_batch = generate_answer_records_for_query_set(
+                            query_set=query_set,
+                            workflow=workflow,
+                            limit=None,
+                        )
+                        state["answer_records"] = answer_batch["items"]
+                        state["_rag_eval_records"] = answer_batch["records"]
+                        state["answer_count"] = answer_batch["count"]
+                        state["collection_name"] = answer_batch["collection_name"]
+                        state["top_k"] = answer_batch["top_k"]
+                    else:
+                        question = state.get("question")
+                        if not question:
+                            raise WorkflowValidationError("Answer node requires question input")
+                        kb = store.get_knowledge_base(int(state["knowledge_base_id"]))
+                        if kb["index_status"] != "ready":
+                            raise ValueError("knowledge base index is not ready")
+                        result = workflow_engine.run_question(
+                            graph,
+                            question=str(question),
+                            vector_manager=vector_builder_factory().manager,
+                            collection_name=kb["collection_name"],
+                            config_path=config_path,
+                            k=int(state.get("top_k") or 3),
+                        )
+                        state["question"] = result.get("question") or str(question)
+                        state["answer"] = result.get("answer") or result.get("generation") or ""
+                        state["contexts"] = result.get("contexts") or []
+                elif node_type == "ragas_eval":
                     query_set = state.get("query_set")
                     if not query_set:
-                        raise WorkflowValidationError("Answer node requires upstream Query Generate for batch answers")
-                    answer_batch = generate_answer_records_for_query_set(
+                        raise WorkflowValidationError("RAGAS Eval node requires upstream Query Generate")
+                    records = state.get("_rag_eval_records") or []
+                    if not records:
+                        raise WorkflowValidationError("RAGAS Eval node requires upstream Answer records")
+                    eval_config = workflow_engine.get_eval_config_from_validation(validation)
+                    eval_records = records[: eval_config["limit"]] if eval_config["limit"] else records
+                    eval_run = create_eval_run_from_answer_records(
                         query_set=query_set,
                         workflow=workflow,
-                        limit=None,
+                        records=eval_records,
                     )
-                    state["answer_records"] = answer_batch["items"]
-                    state["_rag_eval_records"] = answer_batch["records"]
-                    state["answer_count"] = answer_batch["count"]
-                    state["collection_name"] = answer_batch["collection_name"]
-                    state["top_k"] = answer_batch["top_k"]
+                    state["eval_run"] = eval_run
+                elif node_type == "end":
+                    state["outputs"] = collect_end_outputs(node, state)
                 else:
-                    question = state.get("question")
-                    if not question:
-                        raise WorkflowValidationError("Answer node requires question input")
-                    kb = store.get_knowledge_base(int(state["knowledge_base_id"]))
-                    if kb["index_status"] != "ready":
-                        raise ValueError("knowledge base index is not ready")
-                    result = workflow_engine.run_question(
-                        graph,
-                        question=str(question),
-                        vector_manager=vector_builder_factory().manager,
-                        collection_name=kb["collection_name"],
-                        config_path=config_path,
-                        k=int(state.get("top_k") or 3),
+                    raise WorkflowValidationError(f"unsupported executable node type: {node_type}")
+            except Exception as exc:
+                if progress_callback:
+                    progress_callback(
+                        {
+                            "event": "node_failed",
+                            "node_id": node_id,
+                            "type": node_type,
+                            "error": str(exc),
+                        }
                     )
-                    state["question"] = result.get("question") or str(question)
-                    state["answer"] = result.get("answer") or result.get("generation") or ""
-                    state["contexts"] = result.get("contexts") or []
-            elif node_type == "ragas_eval":
-                query_set = state.get("query_set")
-                if not query_set:
-                    raise WorkflowValidationError("RAGAS Eval node requires upstream Query Generate")
-                records = state.get("_rag_eval_records") or []
-                if not records:
-                    raise WorkflowValidationError("RAGAS Eval node requires upstream Answer records")
-                eval_config = workflow_engine.get_eval_config_from_validation(validation)
-                eval_records = records[: eval_config["limit"]] if eval_config["limit"] else records
-                eval_run = create_eval_run_from_answer_records(
-                    query_set=query_set,
-                    workflow=workflow,
-                    records=eval_records,
-                )
-                state["eval_run"] = eval_run
-            elif node_type == "end":
-                state["outputs"] = collect_end_outputs(node, state)
-            else:
-                raise WorkflowValidationError(f"unsupported executable node type: {node_type}")
+                raise
 
+            node_output = summarize_node_output(node_type, state)
             trace.append(
                 {
                     "node_id": node_id,
                     "type": node_type,
                     "status": "completed",
-                    "output": summarize_node_output(node_type, state),
+                    "output": node_output,
                 }
             )
+            if progress_callback:
+                progress_callback(
+                    {
+                        "event": "node_completed",
+                        "node_id": node_id,
+                        "type": node_type,
+                        "output": node_output,
+                    }
+                )
 
         outputs = state.get("outputs") or default_end_outputs(state)
         return {
@@ -1388,6 +1727,45 @@ def create_app(
         try:
             workflow = store.get_workflow(workflow_id)
             return execute_workflow(workflow, inputs=(payload.inputs if payload else {}))
+        except Exception as exc:
+            raise _http_error(exc)
+
+    @app.post("/api/workflows/{workflow_id}/test-runs")
+    def create_workflow_test_run(workflow_id: int, payload: Optional[WorkflowExecuteRequest] = None) -> Dict[str, Any]:
+        try:
+            workflow = store.get_workflow(workflow_id)
+            run_id = uuid.uuid4().hex
+            inputs = payload.inputs if payload else {}
+            started_at = _utc_now()
+            with workflow_test_runs_lock:
+                workflow_test_runs[run_id] = {
+                    "run_id": run_id,
+                    "workflow_id": workflow_id,
+                    "status": "running",
+                    "current_node_id": None,
+                    "current_node_type": None,
+                    "trace": workflow_test_trace_items(workflow["graph"]),
+                    "outputs": None,
+                    "error": None,
+                    "metadata": {"workflow_id": workflow_id},
+                    "started_at": started_at,
+                    "finished_at": None,
+                }
+            prune_workflow_test_runs()
+            thread = threading.Thread(
+                target=run_workflow_test_in_background,
+                args=(run_id, workflow, inputs),
+                daemon=True,
+            )
+            thread.start()
+            return workflow_test_run_snapshot(run_id)
+        except Exception as exc:
+            raise _http_error(exc)
+
+    @app.get("/api/workflow-test-runs/{run_id}")
+    def get_workflow_test_run(run_id: str) -> Dict[str, Any]:
+        try:
+            return workflow_test_run_snapshot(run_id)
         except Exception as exc:
             raise _http_error(exc)
 

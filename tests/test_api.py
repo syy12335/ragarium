@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from copy import deepcopy
 from dataclasses import dataclass
 
@@ -783,6 +784,26 @@ def test_api_import_index_generate_and_eval(tmp_path):
     )
     assert rag_execute_response.status_code == 200
     assert "fake answer" in rag_execute_response.json()["outputs"]["answer"]
+
+    test_run_response = client.post(
+        f"/api/workflows/{rag_workflow_id}/test-runs",
+        json={"inputs": {"question": "How does test run work?"}},
+    )
+    assert test_run_response.status_code == 200
+    test_run = test_run_response.json()
+    assert test_run["run_id"]
+    assert test_run["workflow_id"] == rag_workflow_id
+    assert test_run["status"] in {"running", "completed"}
+    for _ in range(50):
+        test_run = client.get(f"/api/workflow-test-runs/{test_run['run_id']}").json()
+        if test_run["status"] != "running":
+            break
+        time.sleep(0.02)
+    assert test_run["status"] == "completed"
+    assert "fake answer" in test_run["outputs"]["answer"]
+    assert test_run["current_node_id"] is None
+    assert [item["status"] for item in test_run["trace"]] == ["completed"] * len(test_run["trace"])
+    assert any(item["type"] == "answer" and item["output"]["context_count"] == 1 for item in test_run["trace"])
 
     evaluation_workflow_response = client.post(
         "/api/workflows",
