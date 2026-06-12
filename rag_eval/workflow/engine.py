@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from rag_eval.rag.normal_rag import NormalRag
+from rag_eval.eval_engine.metric_presets import metric_names_for_preset, validate_metric_names
 
 
 BLANK_TEMPLATE_ID = "blank"
@@ -221,7 +222,23 @@ WORKFLOW_TEMPLATES: Dict[str, Dict[str, Any]] = {
                     },
                 ),
                 _node("answer", "answer", 960, 120, {"label": "Answer", "outputKey": "answer", "includeContexts": True}),
-                _node("ragas_eval", "ragas_eval", 1200, 120, {"label": "RAGAS Eval", "metricPreset": "reference_free", "limit": ""}),
+                _node(
+                    "ragas_eval",
+                    "ragas_eval",
+                    1200,
+                    120,
+                    {
+                        "label": "RAGAS Eval",
+                        "metricPreset": "reference_free",
+                        "metricNames": [
+                            "faithfulness",
+                            "answer_relevancy",
+                            "context_utilization",
+                            "summary_score",
+                        ],
+                        "limit": "",
+                    },
+                ),
                 _end_node(1440, 120),
             ],
             "edges": [
@@ -718,9 +735,19 @@ class WorkflowEngine:
         if eval_node is None:
             raise WorkflowValidationError("RAGAS Eval node is required")
         data = eval_node.get("data") or {}
-        metric_preset = data.get("metricPreset") or data.get("metric_preset") or "reference_free"
-        if metric_preset != "reference_free":
-            raise WorkflowValidationError("ragas_eval.metricPreset only supports reference_free in v1")
+        raw_metric_names = data.get("metricNames") or data.get("metric_names")
+        if raw_metric_names:
+            try:
+                metric_names = validate_metric_names(raw_metric_names)
+            except ValueError as exc:
+                raise WorkflowValidationError(str(exc))
+            metric_preset = "custom"
+        else:
+            metric_preset = data.get("metricPreset") or data.get("metric_preset") or "reference_free"
+            try:
+                metric_names = metric_names_for_preset(metric_preset)
+            except ValueError as exc:
+                raise WorkflowValidationError(str(exc))
         raw_limit = data.get("limit")
         limit = None
         if raw_limit not in (None, ""):
@@ -730,7 +757,7 @@ class WorkflowEngine:
                 raise WorkflowValidationError("ragas_eval.limit must be an integer")
             if limit <= 0:
                 raise WorkflowValidationError("ragas_eval.limit must be positive")
-        return {"metric_preset": metric_preset, "limit": limit}
+        return {"metric_preset": metric_preset, "metric_names": metric_names, "limit": limit}
 
     def _reachable_from(self, graph: Dict[str, Any], start_id: str) -> set[str]:
         outgoing: Dict[str, List[str]] = {}

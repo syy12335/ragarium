@@ -163,3 +163,25 @@ def test_ragas_eval_requires_answer_node():
 
     with pytest.raises(WorkflowValidationError, match="Answer node"):
         WorkflowEngine().validate_graph(graph)
+
+
+def test_ragas_eval_accepts_custom_reference_free_metrics():
+    graph = configured_template_graph("evaluation", "21")
+    for node in graph["nodes"]:
+        if node["type"] == "ragas_eval":
+            node["data"]["metricNames"] = ["faithfulness"]
+
+    config = WorkflowEngine().get_eval_config(graph)
+
+    assert config["metric_names"] == ["faithfulness"]
+    assert config["metric_preset"] == "custom"
+
+
+def test_ragas_eval_rejects_unknown_metrics():
+    graph = configured_template_graph("evaluation", "21")
+    for node in graph["nodes"]:
+        if node["type"] == "ragas_eval":
+            node["data"]["metricNames"] = ["missing_metric"]
+
+    with pytest.raises(WorkflowValidationError, match="unknown RAGAS metric"):
+        WorkflowEngine().get_eval_config(graph)

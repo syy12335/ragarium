@@ -7,6 +7,7 @@ import time
 import uuid
 from copy import deepcopy
 from datetime import datetime, timezone
+from inspect import signature
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -15,7 +16,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from rag_eval.app_config import AppConfigService
-from rag_eval.eval_engine import EvalEngine, RagEvalRecord
+from rag_eval.eval_engine import (
+    EvalEngine,
+    MetricValidationError,
+    RagEvalRecord,
+    list_metric_specs,
+    resolve_ragas_metric_names,
+    validate_metric_names,
+)
 from rag_eval.ingestion import BrowserSessionManager, IngestionService
 from rag_eval.query_generation import QueryGenerationService
 from rag_eval.storage import ProductStore
@@ -93,6 +101,7 @@ class EvalRunRequest(BaseModel):
     query_set_id: int
     workflow_id: int
     limit: Optional[int] = None
+    metric_names: Optional[List[str]] = None
 
 
 VectorBuilderFactory = Callable[[], VectorDatabaseBuilder]
@@ -238,13 +247,24 @@ def create_app(
     query_generator_factory = query_generator_factory or (
         lambda: QueryGenerationService(store, config_path=config_path)
     )
-    eval_engine_factory = eval_engine_factory or (
-        lambda: EvalEngine(
-            config_path=config_path,
-            metric_preset="reference_free",
-            show_progress=False,
-        )
-    )
+    custom_eval_engine_factory = eval_engine_factory
+
+    def build_eval_engine(metric_names: Optional[List[str]] = None) -> Any:
+        if custom_eval_engine_factory is None:
+            metrics = resolve_ragas_metric_names(metric_names) if metric_names else None
+            return EvalEngine(
+                config_path=config_path,
+                metrics=metrics,
+                metric_preset=None if metrics else "reference_free",
+                show_progress=False,
+            )
+        try:
+            params = signature(custom_eval_engine_factory).parameters
+            if "metric_names" in params:
+                return custom_eval_engine_factory(metric_names=metric_names)
+        except (TypeError, ValueError):
+            pass
+        return custom_eval_engine_factory()
 
     app = FastAPI(title="RAG Eval Scaffold API")
     app.add_middleware(
@@ -1196,12 +1216,29 @@ def create_app(
             contexts.append(str(page_content))
         return contexts
 
-    def evaluate_records_with_engine(records: List[RagEvalRecord]) -> Any:
-        evaluator = eval_engine_factory()
+    def filter_eval_result_metrics(result: Any, metric_names: Optional[List[str]]) -> Any:
+        if not metric_names:
+            return result
+        selected = set(metric_names)
+        if hasattr(result, "overall") and isinstance(result.overall, dict):
+            result.overall = {name: value for name, value in result.overall.items() if name in selected}
+        per_sample = getattr(result, "per_sample", None)
+        if per_sample is not None and hasattr(per_sample, "columns"):
+            keep_columns = [
+                column
+                for column in per_sample.columns
+                if column in selected or column in {"question", "answer", "contexts", "ground_truth"}
+            ]
+            result.per_sample = per_sample[keep_columns]
+        return result
+
+    def evaluate_records_with_engine(records: List[RagEvalRecord], metric_names: Optional[List[str]] = None) -> Any:
+        selected_metric_names = validate_metric_names(metric_names, records)
+        evaluator = build_eval_engine(selected_metric_names if metric_names else None)
         if hasattr(evaluator, "evaluate_records"):
-            return evaluator.evaluate_records(records)
+            return filter_eval_result_metrics(evaluator.evaluate_records(records), selected_metric_names)
         if hasattr(evaluator, "evaluate"):
-            return evaluator.evaluate(records)
+            return filter_eval_result_metrics(evaluator.evaluate(records), selected_metric_names)
 
         class AnswerRecordRunner:
             def __init__(self, items: List[RagEvalRecord]) -> None:
@@ -1222,7 +1259,7 @@ def create_app(
             }
             for record in records
         ]
-        return evaluator.invoke(AnswerRecordRunner(records), samples)
+        return filter_eval_result_metrics(evaluator.invoke(AnswerRecordRunner(records), samples), selected_metric_names)
 
     def generate_answer_records_for_query_set(
         *,
@@ -1334,8 +1371,9 @@ def create_app(
         query_set: Dict[str, Any],
         workflow: Dict[str, Any],
         records: List[RagEvalRecord],
+        metric_names: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        result = evaluate_records_with_engine(records)
+        result = evaluate_records_with_engine(records, metric_names=metric_names)
         samples = build_eval_run_samples(result, records)
         return store.create_eval_run(
             query_set_id=query_set["id"],
@@ -1351,6 +1389,7 @@ def create_app(
         query_set: Dict[str, Any],
         workflow: Dict[str, Any],
         limit: Optional[int],
+        metric_names: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         answer_batch = generate_answer_records_for_query_set(
             query_set=query_set,
@@ -1361,6 +1400,7 @@ def create_app(
             query_set=query_set,
             workflow=workflow,
             records=answer_batch["records"],
+            metric_names=metric_names,
         )
 
     def summarize_node_output(node_type: str, state: Dict[str, Any]) -> Dict[str, Any]:
@@ -1702,6 +1742,7 @@ def create_app(
                         query_set=query_set,
                         workflow=workflow,
                         records=eval_records,
+                        metric_names=eval_config.get("metric_names"),
                     )
                     state["eval_run"] = eval_run
                 elif node_type == "end":
@@ -1963,6 +2004,7 @@ def create_app(
                 query_set=query_set,
                 workflow=workflow,
                 limit=eval_config["limit"],
+                metric_names=eval_config.get("metric_names"),
             )
             return {
                 "workflow_id": workflow_id,
@@ -2010,6 +2052,13 @@ def create_app(
     def list_eval_runs() -> List[Dict[str, Any]]:
         return store.list_eval_runs()
 
+    @app.get("/api/eval-metrics")
+    def list_eval_metrics() -> Dict[str, Any]:
+        return {
+            "metrics": list_metric_specs(),
+            "default_metric_names": validate_metric_names(None),
+        }
+
     @app.post("/api/eval-runs")
     def create_eval_run(payload: EvalRunRequest) -> Dict[str, Any]:
         try:
@@ -2021,8 +2070,11 @@ def create_app(
                 query_set=query_set,
                 workflow=workflow,
                 limit=payload.limit,
+                metric_names=payload.metric_names,
             )
         except Exception as exc:
+            if isinstance(exc, MetricValidationError):
+                raise _http_error(exc)
             # A failed run is still durable product state; return it so the UI
             # can show the exact model/API-key/index failure instead of losing it.
             failed_run = None

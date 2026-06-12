@@ -224,7 +224,7 @@ def run_ragas_evaluation(
         若为 None，则根据 metric_preset 或样本是否含 ground_truth 自动选择。
 
       metric_preset:
-        "reference_free" 只跑 faithfulness / answer_relevancy，适合 query-only 数据集。
+        "reference_free" 跑所有不依赖 reference 的默认指标，适合 query-only 数据集。
         "full" 跑 faithfulness / answer_relevancy / context_precision / context_recall。
 
     返回：

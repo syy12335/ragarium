@@ -1,6 +1,15 @@
 from __future__ import annotations
 
-from rag_eval.eval_engine.metric_presets import FULL, REFERENCE_FREE, infer_metric_preset
+import pytest
+
+from rag_eval.eval_engine.metric_presets import (
+    FULL,
+    REFERENCE_FREE,
+    MetricValidationError,
+    infer_metric_preset,
+    list_metric_specs,
+    validate_metric_names,
+)
 from rag_eval.eval_engine.rag_batch_runner import RagEvalRecord
 
 
@@ -19,3 +28,27 @@ def test_ground_truth_records_use_full_preset():
     ]
 
     assert infer_metric_preset(records) == FULL
+
+
+def test_metric_registry_marks_reference_requirements():
+    specs = {item["name"]: item for item in list_metric_specs()}
+
+    assert specs["faithfulness"]["default_enabled"] is True
+    assert specs["answer_relevancy"]["requires_reference"] is False
+    assert specs["context_utilization"]["requires_reference"] is False
+    assert specs["context_utilization"]["default_enabled"] is True
+    assert specs["summary_score"]["requires_reference"] is False
+    assert specs["summary_score"]["default_enabled"] is True
+    assert specs["answer_correctness"]["requires_reference"] is True
+
+
+def test_query_only_records_reject_reference_metrics():
+    records = [RagEvalRecord(question="q1", answer="a1", contexts=["c1"])]
+
+    assert validate_metric_names(["faithfulness", "context_utilization", "summary_score"], records) == [
+        "faithfulness",
+        "context_utilization",
+        "summary_score",
+    ]
+    with pytest.raises(MetricValidationError, match="require reference answers"):
+        validate_metric_names(["context_recall"], records)

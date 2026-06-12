@@ -595,6 +595,102 @@ def test_api_retrieval_test_loads_managed_provider_key_before_query(tmp_path, mo
     assert manager.calls[0]["collection_name"] == kb["collection_name"]
 
 
+def create_eval_test_client(tmp_path):
+    store = ProductStore(tmp_path / "state.sqlite")
+    app = create_app(
+        store=store,
+        workflow_engine=FakeWorkflowEngine(),
+        vector_builder_factory=lambda: FakeVectorBuilder(),
+        eval_engine_factory=lambda: FakeEvalEngine(),
+    )
+    client = TestClient(app)
+    kb = client.post("/api/knowledge-bases", json={"name": "Docs"}).json()
+    store.update_knowledge_base_index_status(kb["id"], status="ready")
+    query_set = store.create_query_set(
+        kb["id"],
+        name="Smoke queries",
+        examples=["如何上传文档？", "如何构建索引？", "如何运行评测？"],
+        target_count=1,
+        queries=["怎么导入资料？"],
+    )
+    workflow_response = client.post(
+        "/api/workflows",
+        json={"name": "RAG", "graph": template_graph("rag", kb["id"])},
+    )
+    assert workflow_response.status_code == 200
+    return client, query_set, workflow_response.json()
+
+
+def test_api_lists_ragas_metric_registry(tmp_path):
+    client, _, _ = create_eval_test_client(tmp_path)
+
+    response = client.get("/api/eval-metrics")
+
+    assert response.status_code == 200
+    payload = response.json()
+    names = [item["name"] for item in payload["metrics"]]
+    assert payload["default_metric_names"] == [
+        "faithfulness",
+        "answer_relevancy",
+        "context_utilization",
+        "summary_score",
+    ]
+    assert "faithfulness" in names
+    assert "context_utilization" in names
+    assert "summary_score" in names
+    assert "answer_correctness" in names
+    context_utilization = next(item for item in payload["metrics"] if item["name"] == "context_utilization")
+    assert context_utilization["requires_reference"] is False
+    context_recall = next(item for item in payload["metrics"] if item["name"] == "context_recall")
+    assert context_recall["requires_reference"] is True
+    assert context_recall["description"]
+
+
+def test_api_eval_run_can_select_single_reference_free_metric(tmp_path):
+    client, query_set, workflow = create_eval_test_client(tmp_path)
+
+    response = client.post(
+        "/api/eval-runs",
+        json={
+            "query_set_id": query_set["id"],
+            "workflow_id": workflow["id"],
+            "metric_names": ["faithfulness"],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "completed"
+    assert payload["metrics"] == {"faithfulness": 1.0}
+    assert payload["samples"][0]["metrics"] == {"faithfulness": 1.0}
+
+
+def test_api_eval_run_rejects_unknown_or_reference_metric_for_query_only(tmp_path):
+    client, query_set, workflow = create_eval_test_client(tmp_path)
+
+    unknown_response = client.post(
+        "/api/eval-runs",
+        json={
+            "query_set_id": query_set["id"],
+            "workflow_id": workflow["id"],
+            "metric_names": ["not_a_metric"],
+        },
+    )
+    reference_response = client.post(
+        "/api/eval-runs",
+        json={
+            "query_set_id": query_set["id"],
+            "workflow_id": workflow["id"],
+            "metric_names": ["context_recall"],
+        },
+    )
+
+    assert unknown_response.status_code == 400
+    assert "unknown RAGAS metric" in unknown_response.json()["detail"]
+    assert reference_response.status_code == 400
+    assert "require reference answers" in reference_response.json()["detail"]
+
+
 def test_api_import_index_generate_and_eval(tmp_path):
     store = ProductStore(tmp_path / "state.sqlite")
 
