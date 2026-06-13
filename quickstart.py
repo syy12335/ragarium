@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
-from rag_eval import VectorDatabaseBuilder, RagRunner, EvalEngine
+from ragarium import VectorDatabaseBuilder, RagRunner, EvalEngine
 
 
 def pretty_print_docs(docs: Iterable[Any], max_docs: int = 3, max_chars: int = 400) -> None:

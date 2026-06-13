@@ -3,9 +3,9 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "rag-eval-scaffold"
-version = "0.3.0"
-description = "Local RAG evaluation product scaffold with FastAPI, React, SQLite, Chroma, and RAGAS."
+name = "ragarium"
+version = "0.4.0"
+description = "Local-first RAG workspace with workflow graphs, automatic query generation, RAGAS evaluation, and HTTP Runtime API."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
@@ -14,11 +14,15 @@ authors = [
 ]
 keywords = [
   "rag",
+  "llm",
+  "workflow",
+  "query-generation",
   "evaluation",
   "ragas",
   "fastapi",
+  "react",
   "chroma",
-  "workflow",
+  "local-first",
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -71,7 +75,7 @@ Repository = "https://github.com/syy12335/rag-eval-scaffold"
 Issues = "https://github.com/syy12335/rag-eval-scaffold/issues"
 
 [project.scripts]
-rag-eval-api = "rag_eval.api.cli:main"
+ragarium-api = "ragarium.api.cli:main"
 
 [tool.setuptools]
 include-package-data = true
@@ -79,7 +83,7 @@ py-modules = ["quickstart", "streamlit_app"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["rag_eval*", "utils*"]
+include = ["ragarium*", "utils*"]
 exclude = ["tests*", "frontend*", "datasets*", "config*", "var*", "chroma_db*"]
 
 [tool.pytest.ini_options]

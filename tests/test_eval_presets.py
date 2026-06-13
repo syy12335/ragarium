@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from rag_eval.eval_engine.metric_presets import (
+from ragarium.eval_engine.metric_presets import (
     FULL,
     REFERENCE_FREE,
     MetricValidationError,
@@ -10,8 +10,8 @@ from rag_eval.eval_engine.metric_presets import (
     list_metric_specs,
     validate_metric_names,
 )
-from rag_eval.eval_engine.rag_batch_runner import RagEvalRecord
-from rag_eval.eval_engine.ragas_eval import _build_ragas_dataset
+from ragarium.eval_engine.rag_batch_runner import RagEvalRecord
+from ragarium.eval_engine.ragas_eval import _build_ragas_dataset
 
 
 def test_query_only_records_use_reference_free_preset():

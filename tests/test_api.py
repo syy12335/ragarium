@@ -9,11 +9,11 @@ import yaml
 import pandas as pd
 from fastapi.testclient import TestClient
 
-from rag_eval.api import create_app
-from rag_eval.ingestion.loaders import ParsedDocument
-from rag_eval.query_generation import QueryGenerationService
-from rag_eval.storage import ProductStore
-from rag_eval.workflow import DEFAULT_WORKFLOW_GRAPH, WorkflowEngine, get_default_workflow_graph
+from ragarium.api import create_app
+from ragarium.ingestion.loaders import ParsedDocument
+from ragarium.query_generation import QueryGenerationService
+from ragarium.storage import ProductStore
+from ragarium.workflow import DEFAULT_WORKFLOW_GRAPH, WorkflowEngine, get_default_workflow_graph
 
 
 def graph_with_source_db(kb_id: int):
@@ -261,7 +261,7 @@ def test_api_config_accepts_managed_api_key_without_returning_secret(tmp_path, m
         ),
         encoding="utf-8",
     )
-    monkeypatch.setenv("RAG_EVAL_APP_HOME", str(tmp_path / "app_state"))
+    monkeypatch.setenv("RAGARIUM_APP_HOME", str(tmp_path / "app_state"))
     monkeypatch.delenv("API_KEY_QWEN", raising=False)
 
     client = TestClient(create_app(store=ProductStore(tmp_path / "state.sqlite"), config_path=str(app_path)))
@@ -327,7 +327,7 @@ def test_api_failed_url_import_updates_source_and_kb_status(tmp_path, monkeypatc
     kb = client.post("/api/knowledge-bases", json={"name": "Docs"}).json()
 
     monkeypatch.setattr(
-        "rag_eval.ingestion.service.parse_url",
+        "ragarium.ingestion.service.parse_url",
         lambda url: ParsedDocument(
             content="如果您在几秒钟内没有被重定向，请点击此处。",
             metadata={"source": url, "url": url, "extension": ".html"},
@@ -441,7 +441,7 @@ def test_api_index_loads_managed_provider_key_before_build(tmp_path, monkeypatch
         yaml.safe_dump({"api_keys": {"qwen": "managed-secret"}}, allow_unicode=True),
         encoding="utf-8",
     )
-    monkeypatch.setenv("RAG_EVAL_APP_HOME", str(app_home))
+    monkeypatch.setenv("RAGARIUM_APP_HOME", str(app_home))
     monkeypatch.delenv("TEST_INDEX_QWEN_KEY", raising=False)
 
     store = ProductStore(tmp_path / "state.sqlite")
@@ -572,7 +572,7 @@ def test_api_retrieval_test_loads_managed_provider_key_before_query(tmp_path, mo
         yaml.safe_dump({"api_keys": {"qwen": "managed-retrieval-secret"}}, allow_unicode=True),
         encoding="utf-8",
     )
-    monkeypatch.setenv("RAG_EVAL_APP_HOME", str(app_home))
+    monkeypatch.setenv("RAGARIUM_APP_HOME", str(app_home))
     monkeypatch.delenv("TEST_RETRIEVAL_QWEN_KEY", raising=False)
 
     store = ProductStore(tmp_path / "state.sqlite")

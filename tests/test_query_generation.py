@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from rag_eval.query_generation import QueryGenerationService
-from rag_eval.storage import ProductStore
+from ragarium.query_generation import QueryGenerationService
+from ragarium.storage import ProductStore
 
 
 def test_query_generation_validates_example_count(tmp_path):

@@ -4,10 +4,10 @@ import io
 
 import pytest
 
-from rag_eval.ingestion.chunking import chunk_document
-from rag_eval.ingestion.loaders import ParsedDocument, parse_file, parse_url
-from rag_eval.ingestion.service import IngestionService
-from rag_eval.storage import ProductStore
+from ragarium.ingestion.chunking import chunk_document
+from ragarium.ingestion.loaders import ParsedDocument, parse_file, parse_url
+from ragarium.ingestion.service import IngestionService
+from ragarium.storage import ProductStore
 
 
 def test_parse_text_and_chunk_metadata(tmp_path):
@@ -33,7 +33,7 @@ def test_parse_legacy_doc_is_rejected(tmp_path):
 
 def test_parse_url_with_mocked_response(monkeypatch):
     monkeypatch.setattr(
-        "rag_eval.ingestion.loaders._render_url_text",
+        "ragarium.ingestion.loaders._render_url_text",
         lambda url, timeout=20: ("Demo", "Hello\nRAG docs"),
     )
 
@@ -49,9 +49,9 @@ def test_google_search_url_renders_original_url(monkeypatch):
 
     def fake_render(url, timeout=20):
         seen["url"] = url
-        return "Google Search", "Google Search\nRAG Eval result"
+        return "Google Search", "Google Search\nRagarium result"
 
-    monkeypatch.setattr("rag_eval.ingestion.loaders._render_url_text", fake_render)
+    monkeypatch.setattr("ragarium.ingestion.loaders._render_url_text", fake_render)
 
     parsed = parse_url("https://www.google.com/search?q=rag%20eval")
 
@@ -73,7 +73,7 @@ def test_google_search_url_retries_google_lightweight_page_on_challenge(monkeypa
             return "关于此网页", "关于此网页 我们的系统检测到您的计算机网络中存在异常流量。"
         return "1 - Google 搜索", "1 - 維基百科，自由的百科全書\n数学中的数字 1。"
 
-    monkeypatch.setattr("rag_eval.ingestion.loaders._render_url_text", fake_render)
+    monkeypatch.setattr("ragarium.ingestion.loaders._render_url_text", fake_render)
 
     original_url = "https://www.google.com/search?q=1&sourceid=chrome&ie=UTF-8"
     parsed = parse_url(original_url)
@@ -96,7 +96,7 @@ def test_parse_url_reports_missing_browser(monkeypatch):
     def fail_load_playwright():
         raise RuntimeError("浏览器渲染依赖未就绪；请先执行 .venv/bin/python -m playwright install chromium")
 
-    monkeypatch.setattr("rag_eval.ingestion.loaders._load_playwright", fail_load_playwright)
+    monkeypatch.setattr("ragarium.ingestion.loaders._load_playwright", fail_load_playwright)
 
     with pytest.raises(RuntimeError, match="playwright install chromium"):
         parse_url("https://example.com/demo")
@@ -136,7 +136,7 @@ def test_ingestion_service_rejects_url_without_text_chunks(tmp_path, monkeypatch
     kb = store.create_knowledge_base("Docs")
 
     monkeypatch.setattr(
-        "rag_eval.ingestion.service.parse_url",
+        "ragarium.ingestion.service.parse_url",
         lambda url: ParsedDocument(content="", metadata={"source": url, "url": url}),
     )
 
@@ -157,7 +157,7 @@ def test_ingestion_service_rejects_js_redirect_shell(tmp_path, monkeypatch):
     kb = store.create_knowledge_base("Docs")
 
     monkeypatch.setattr(
-        "rag_eval.ingestion.service.parse_url",
+        "ragarium.ingestion.service.parse_url",
         lambda url: ParsedDocument(
             content="如果您在几秒钟内没有被重定向，请点击此处。",
             metadata={"source": url, "url": url, "extension": ".html"},
@@ -181,7 +181,7 @@ def test_ingestion_service_rejects_browser_challenge_page(tmp_path, monkeypatch)
     kb = store.create_knowledge_base("Docs")
 
     monkeypatch.setattr(
-        "rag_eval.ingestion.service.parse_url",
+        "ragarium.ingestion.service.parse_url",
         lambda url: ParsedDocument(
             content="关于此网页 我们的系统检测到您的计算机网络中存在异常流量。此网页用于确认这些请求是由您而不是自动程序发出的。",
             metadata={"source": url, "url": url, "extension": ".html"},

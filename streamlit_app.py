@@ -1,5 +1,5 @@
 """
-RAG Eval Console 前端（基于 rag_eval 的对外 API）
+Ragarium Console 前端（基于 ragarium 的对外 API）
 
 逻辑约定：
   1. 先通过 VectorDatabaseBuilder 构建 / 刷新向量库；
@@ -20,13 +20,13 @@ import pandas as pd
 import streamlit as st
 
 # ------------------------------------------------------------
-# 让 Python 能找到项目根目录下的 rag_eval 包
+# 让 Python 能找到项目根目录下的 ragarium 包
 # ------------------------------------------------------------
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
-from rag_eval import (                # noqa: E402
+from ragarium import (                # noqa: E402
     VectorDatabaseBuilder,
     RagRunner,
     EvalEngine,
@@ -108,7 +108,7 @@ def run_batch_evaluation(
 # ------------------------------------------------------------
 def main() -> None:
     st.set_page_config(
-        page_title="RAG Eval Console",
+        page_title="Ragarium Console",
         layout="wide",
     )
 

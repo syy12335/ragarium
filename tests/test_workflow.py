@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import pytest
 
-from rag_eval.workflow import (
+from ragarium.workflow import (
     DEFAULT_WORKFLOW_GRAPH,
     WorkflowEngine,
     WorkflowValidationError,

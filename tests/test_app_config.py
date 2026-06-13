@@ -3,7 +3,7 @@ from __future__ import annotations
 import yaml
 import pytest
 
-from rag_eval.app_config import AppConfigService
+from ragarium.app_config import AppConfigService
 from utils import YamlConfigReader
 
 

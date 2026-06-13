@@ -1,4 +1,4 @@
-# qwen_rag_eval/utils/yaml_reader.py
+# ragarium/utils/yaml_reader.py
 
 import os
 import shutil
