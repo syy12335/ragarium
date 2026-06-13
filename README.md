@@ -22,8 +22,15 @@
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
 .venv/bin/python -m playwright install chromium
+```
+
+如果只想沿用兼容入口，也可以执行：
+
+```bash
+python -m pip install -r requirements.txt
 ```
 
 安装前端依赖：
@@ -69,13 +76,19 @@ set API_KEY_QWEN=your-api-key
 ### 3. 启动后端
 
 ```bash
-.venv/bin/python -m uvicorn rag_eval.api.app:app --host 127.0.0.1 --port 8000
+rag-eval-api
 ```
 
 健康检查：
 
 ```bash
 curl http://127.0.0.1:8000/api/health
+```
+
+也可以继续直接使用 Uvicorn：
+
+```bash
+.venv/bin/python -m uvicorn rag_eval.api.app:app --host 127.0.0.1 --port 8000
 ```
 
 ### 4. 启动前端

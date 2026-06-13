@@ -1,0 +1,7 @@
+include LICENSE
+include README.md
+include README_zh.md
+include requirements.txt
+include pytest.ini
+recursive-include config *.example
+recursive-include datasets *.md
