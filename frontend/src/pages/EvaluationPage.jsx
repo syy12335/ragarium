@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Play, WandSparkles } from 'lucide-react';
 import { api } from '../api.js';
 import { Button, EmptyState, Field, HelpDot, Panel, StatusPill } from '../components/ui.jsx';
@@ -28,6 +28,8 @@ export function EvaluationPage({ remote, runTask, onNavigate }) {
   const visibleRuns = activeRun ? [activeRun, ...remote.evalRuns] : remote.evalRuns;
   const metricSpecs = resolveMetricSpecs(remote);
   const defaultMetricNames = resolveDefaultMetricNames(remote);
+  const defaultMetricKey = defaultMetricNames.join('|');
+  const hasRemoteMetricDefaults = Boolean(remote.evalMetrics?.default_metric_names?.length);
   const metricsByName = useMemo(
     () => Object.fromEntries(metricSpecs.map((spec) => [spec.name, spec])),
     [metricSpecs],
@@ -36,6 +38,18 @@ export function EvaluationPage({ remote, runTask, onNavigate }) {
   const selectedMetricSummary = selectedMetricNames
     .map((name) => metricsByName[name]?.label || name)
     .join(' / ');
+
+  useEffect(() => {
+    if (!hasRemoteMetricDefaults) {
+      return;
+    }
+    setSelectedMetricNames((current) => {
+      const stillUsingFallback =
+        current.length === FALLBACK_DEFAULT_METRICS.length &&
+        current.every((name, index) => name === FALLBACK_DEFAULT_METRICS[index]);
+      return stillUsingFallback ? defaultMetricNames : current;
+    });
+  }, [defaultMetricKey, hasRemoteMetricDefaults]);
 
   function dbName(id) {
     return remote.knowledgeBases.find((db) => String(db.id) === String(id))?.name || `DB #${id}`;
