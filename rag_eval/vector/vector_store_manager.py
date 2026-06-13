@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import List, Optional
 
@@ -12,6 +13,9 @@ from langchain_core.embeddings import Embeddings
 
 from utils import YamlConfigReader
 from rag_eval.embeddings.factory import build_embedding_from_config
+
+
+logger = logging.getLogger(__name__)
 
 
 class VectorStoreManager:
@@ -105,9 +109,11 @@ class VectorStoreManager:
         total = len(documents)
         for i in range(0, total, batch_size):
             batch = documents[i : i + batch_size]
-            print(
-                f"[vector_store_manager] 写入文档 "
-                f"{i + 1}-{min(i + batch_size, total)} / {total}"
+            logger.info(
+                "Writing documents %s-%s / %s",
+                i + 1,
+                min(i + batch_size, total),
+                total,
             )
             vs.add_documents(batch)
 
@@ -126,11 +132,11 @@ class VectorStoreManager:
         existing_collections = [col.name for col in client.list_collections()]
 
         if collection_name not in existing_collections:
-            print(f"[vector_store_manager] 集合 '{collection_name}' 不存在，无需删除。")
+            logger.info("Collection %s does not exist; skip delete", collection_name)
             return
 
         client.delete_collection(name=collection_name)
-        print(f"[vector_store_manager] 已成功删除集合：'{collection_name}'")
+        logger.info("Deleted collection %s", collection_name)
 
         if (
             self.vectorstore
@@ -162,9 +168,10 @@ class VectorStoreManager:
         # 新写法：使用 LangChain 推荐的 retriever.invoke，而不是 get_relevant_documents
         results = retriever.invoke(query)
 
-        print(
-            f"[vector_store_manager] invoke() 检索完成："
-            f"collection = '{coll}', k = {k}, 命中文档数 = {len(results)}"
+        logger.info(
+            "Retriever invoke completed: collection=%s, k=%s, hits=%s",
+            coll,
+            k,
+            len(results),
         )
         return results
-

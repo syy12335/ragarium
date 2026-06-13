@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -19,6 +20,9 @@ from rag_eval.vector.vector_store_manager import VectorStoreManager
 
 PathLike = Union[str, Path]
 ConfigLike = Union[YamlConfigReader, str]
+
+
+logger = logging.getLogger(__name__)
 
 
 def _get_project_root(config: YamlConfigReader) -> Path:
@@ -90,7 +94,9 @@ def convert_chunks_to_documents(records: List[Dict[str, Any]]) -> List[Document]
     return docs
 
 
-def convert_product_chunks_to_documents(records: List[Dict[str, Any]]) -> List[Document]:
+def convert_product_chunks_to_documents(
+    records: List[Dict[str, Any]]
+) -> List[Document]:
     """
     Convert product knowledge-base chunks from SQLite into LangChain Documents.
 
@@ -215,7 +221,7 @@ class VectorDatabaseBuilder:
 
         samples_path = self.project_root / samples_rel
         if not samples_path.exists():
-            print(f"[vector_builder] 样本不存在，先构建 samples：{samples_path}")
+            logger.info("Samples missing; building samples at %s", samples_path)
             samples_path = build_eval_samples(self.config)
 
         return samples_path
@@ -239,7 +245,7 @@ class VectorDatabaseBuilder:
         chunks_path = self.project_root / chunks_rel
         if not chunks_path.exists():
             samples_path = self._resolve_samples_path()
-            print(f"[vector_builder] 使用 samples 切割 chunks → {chunks_path}")
+            logger.info("Building chunks from samples at %s", chunks_path)
             make_chunks_from_samples(samples_path, chunks_path)
 
         return chunks_path
@@ -299,14 +305,13 @@ class VectorDatabaseBuilder:
 
         if coll in existing_collections:
             if not overwrite:
-                print(
-                    f"[vector_builder] 向量库已存在，直接返回：{persist_dir} "
-                    f"(collection='{coll}')"
+                logger.info(
+                    "Vector store already exists at %s (collection=%s)",
+                    persist_dir,
+                    coll,
                 )
                 return self.manager
-            print(
-                f"[vector_builder] 覆盖模式：删除已有 collection='{coll}'"
-            )
+            logger.info("Overwrite mode: deleting existing collection %s", coll)
             client.delete_collection(name=coll)
 
         # 2. 解析 samples / chunks 路径
@@ -317,7 +322,7 @@ class VectorDatabaseBuilder:
                 raise FileNotFoundError(f"未找到样本文件：{samples_abs}")
 
             chunks_path = samples_abs.with_name(samples_abs.stem + "_chunks.jsonl")
-            print(f"[vector_builder] 使用 samples 切割 chunks → {chunks_path}")
+            logger.info("Building chunks from samples at %s", chunks_path)
             make_chunks_from_samples(samples_abs, chunks_path)
         else:
             # 配置驱动模式：使用 dataset.* 配置解析
@@ -327,13 +332,10 @@ class VectorDatabaseBuilder:
         records = load_chunk_records(chunks_path)
         docs = convert_chunks_to_documents(records)
 
-        print(
-            f"[vector_builder] 写入向量库（共 {len(docs)} 条 chunk），"
-            f"collection='{coll}'"
-        )
+        logger.info("Writing %s chunks to vector store collection %s", len(docs), coll)
         self.manager.add_documents(docs, collection_name=coll)
 
-        print("[vector_builder] 向量库构建完成")
+        logger.info("Vector store build completed")
         return self.manager
 
     def build_from_chunks(
@@ -363,18 +365,18 @@ class VectorDatabaseBuilder:
         if not docs:
             raise ValueError("all chunks are empty; cannot build vector store")
 
-        print(
-            f"[vector_builder] 写入产品知识库向量库（共 {len(docs)} 条 chunk），"
-            f"collection='{coll}'"
+        logger.info(
+            "Writing %s product chunks to vector store collection %s", len(docs), coll
         )
         self.manager.add_documents(docs, collection_name=coll)
-        print("[vector_builder] 产品知识库向量库构建完成")
+        logger.info("Product knowledge-base vector store build completed")
         return self.manager
 
 
 # ----------------------------------------------------------------------
 # 兼容性函数：保留简化入口，内部统一调用 VectorDatabaseBuilder
 # ----------------------------------------------------------------------
+
 
 def ensure_cmrc_vector_store(
     config: ConfigLike = "config/application.yaml",
@@ -396,9 +398,10 @@ def ensure_cmrc_vector_store(
 
     if builder._collection_exists(collection_name):
         persist_dir = Path(builder.manager.persist_directory)
-        print(
-            f"[vector_builder] 向量库已存在：{persist_dir} "
-            f"(collection='{collection_name}')"
+        logger.info(
+            "Vector store already exists at %s (collection=%s)",
+            persist_dir,
+            collection_name,
         )
         return
 
