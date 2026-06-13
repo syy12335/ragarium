@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rag-eval-scaffold"
-version = "0.2.2"
+version = "0.3.0"
 description = "Local RAG evaluation product scaffold with FastAPI, React, SQLite, Chroma, and RAGAS."
 readme = "README.md"
 requires-python = ">=3.10"

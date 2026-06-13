@@ -32,15 +32,15 @@ Remote publication is intentionally separate from local verification.
 
 ```bash
 git status --short
-git tag -a v0.2.2 -m "v0.2.2"
-git push origin v0.2.2
-gh release create v0.2.2 --title "v0.2.2" --notes-file RELEASE_NOTES.md --prerelease
+git tag -a v0.3.0 -m "v0.3.0"
+git push origin v0.3.0
+gh release create v0.3.0 --title "v0.3.0" --notes-file RELEASE_NOTES.md --prerelease
 ```
 
 ## Rollback Notes
 
 - If the package install is broken, delete the local tag before pushing:
-  `git tag -d v0.2.2`.
+  `git tag -d v0.3.0`.
 - If a pushed prerelease is wrong, create a patch release instead of moving the
   published tag.
 - The local runtime state under `var/` and Chroma data are not release
