@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence
-
 import math
+import logging
 import os
+from typing import Any, Dict, List, Optional, Sequence
 
 from datasets import Dataset, Features, Sequence as HFSequence, Value
 
@@ -25,7 +25,13 @@ import pandas as pd
 from utils import YamlConfigReader, ensure_yaml_config_file
 from rag_eval.eval_engine.rag_batch_runner import RagEvalRecord
 from rag_eval.eval_engine.eval_result import EvalResult
-from rag_eval.eval_engine.metric_presets import infer_metric_preset, resolve_ragas_metrics
+from rag_eval.eval_engine.metric_presets import (
+    infer_metric_preset,
+    resolve_ragas_metrics,
+)
+
+
+logger = logging.getLogger(__name__)
 
 
 def _build_ragas_dataset(records: List[RagEvalRecord]) -> Dataset:
@@ -37,6 +43,7 @@ def _build_ragas_dataset(records: List[RagEvalRecord]) -> Dataset:
       answer:        str                    # RAG 生成的回答
       contexts:      List[str]              # 上下文文本列表
       ground_truth:  str                    # 标准答案（可以为空字符串）
+      summary:       str                    # RAGAS summarization_score 使用；这里等同 answer
     """
     if not records:
         raise ValueError("records 为空，无法构建 RAGAS 数据集。")
@@ -45,10 +52,13 @@ def _build_ragas_dataset(records: List[RagEvalRecord]) -> Dataset:
     answers: List[str] = []
     contexts_list: List[List[str]] = []
     ground_truths: List[str] = []
+    summaries: List[str] = []
 
     for r in records:
         questions.append(str(r.question) if r.question is not None else "")
-        answers.append(str(r.answer) if r.answer is not None else "")
+        answer = str(r.answer) if r.answer is not None else ""
+        answers.append(answer)
+        summaries.append(answer)
 
         ctx_texts: List[str] = []
         for c in r.contexts or []:
@@ -64,6 +74,8 @@ def _build_ragas_dataset(records: List[RagEvalRecord]) -> Dataset:
         "answer": answers,
         "contexts": contexts_list,
         "ground_truth": ground_truths,
+        # RAGAS 的 summarization_score 要求 summary 列；RAG 场景下把生成答案作为待评估摘要。
+        "summary": summaries,
     }
 
     features = Features(
@@ -72,21 +84,24 @@ def _build_ragas_dataset(records: List[RagEvalRecord]) -> Dataset:
             "answer": Value("string"),
             "contexts": HFSequence(Value("string")),
             "ground_truth": Value("string"),
+            "summary": Value("string"),
         }
     )
 
     ds = Dataset.from_dict(raw_data)
     ds = ds.cast(features)
 
-    # 调试输出（稳定后可视情况删除）
-    print("[debug] RAGAS Dataset:", ds)
-    print("[debug] features:", ds.features)
     ctx_feat = ds.features["contexts"]
-    print(
-        "[debug] contexts feature -> type:",
+    logger.debug("RAGAS dataset: %s", ds)
+    logger.debug("RAGAS features: %s", ds.features)
+    logger.debug(
+        "RAGAS contexts feature -> type: %s, inner dtype: %s",
         type(ctx_feat),
-        "inner dtype:",
-        getattr(ctx_feat, "feature", None).dtype if getattr(ctx_feat, "feature", None) else None,
+        (
+            getattr(ctx_feat, "feature", None).dtype
+            if getattr(ctx_feat, "feature", None)
+            else None
+        ),
     )
 
     return ds
@@ -177,8 +192,7 @@ def _build_ragas_components(config: YamlConfigReader):
         )
     if not api_key:
         raise ValueError(
-            f"未在环境变量 {api_key_env} 中找到 API Key，"
-            "请先设置该环境变量。"
+            f"未在环境变量 {api_key_env} 中找到 API Key，" "请先设置该环境变量。"
         )
 
     # 5. 构造 RAGAS 用的 LLM 与 Embedding 封装
@@ -243,7 +257,7 @@ def run_ragas_evaluation(
             "未在 application.yaml 中配置 evaluation.output_csv，"
             "请在 config/application.yaml 的 evaluation 段中设置默认写入路径，例如：\n"
             "evaluation:\n"
-            "  output_csv: \"data/evaluation/ragas_result.csv\""
+            '  output_csv: "data/evaluation/ragas_result.csv"'
         )
 
     csv_path = (project_root / csv_rel_path).resolve()
@@ -271,7 +285,7 @@ def run_ragas_evaluation(
     df: pd.DataFrame = result.to_pandas()
 
     df.to_csv(csv_path, index=False, encoding="utf-8-sig")
-    print(f"[ragas_eval] 已将评估结果写入：{csv_path}")
+    logger.info("RAGAS evaluation result written to %s", csv_path)
 
     overall: Dict[str, Optional[float]] = {}
     for m in metrics:

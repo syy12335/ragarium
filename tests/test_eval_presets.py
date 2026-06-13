@@ -11,6 +11,7 @@ from rag_eval.eval_engine.metric_presets import (
     validate_metric_names,
 )
 from rag_eval.eval_engine.rag_batch_runner import RagEvalRecord
+from rag_eval.eval_engine.ragas_eval import _build_ragas_dataset
 
 
 def test_query_only_records_use_reference_free_preset():
@@ -52,3 +53,12 @@ def test_query_only_records_reject_reference_metrics():
     ]
     with pytest.raises(MetricValidationError, match="require reference answers"):
         validate_metric_names(["context_recall"], records)
+
+
+def test_ragas_dataset_maps_answer_to_summary_for_summary_score():
+    dataset = _build_ragas_dataset([
+        RagEvalRecord(question="q1", answer="answer text", contexts=["context text"]),
+    ])
+
+    assert "summary" in dataset.column_names
+    assert dataset[0]["summary"] == "answer text"
