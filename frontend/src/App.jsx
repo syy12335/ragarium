@@ -139,8 +139,8 @@ export default function App() {
         <div className="brand">
           <Bot size={22} />
           <div>
-            <strong>RAG Eval</strong>
-            <span>本地产品控制台</span>
+            <strong>Ragarium</strong>
+            <span>本地 RAG 工作台</span>
           </div>
         </div>
         <nav>

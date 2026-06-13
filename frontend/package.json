@@ -1,6 +1,6 @@
 {
-  "name": "rag-eval-scaffold-product",
-  "version": "0.1.0",
+  "name": "ragarium",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {

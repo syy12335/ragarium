@@ -1,10 +1,18 @@
-# RAG Eval
+# Ragarium
 
-本项目是一个本地运行的 RAG 评测产品。它把资料导入、知识库切分与索引、Workflow 编排、Query 评测集生成、RAGAS 评测和外部 HTTP 调用放在同一个控制台里，适合用来快速验证一个 RAG 系统是否“能检索、能回答、能评测、能被其他程序调用”。
+Ragarium 是一个中文优先、本地优先的 RAG 工作台。
+
+它把资料导入、知识库切分与索引、可视化 Workflow 编排、自动 Query 生成、RAGAS 评测和 HTTP Runtime API 放在同一个本地控制台中，适合快速验证一个 RAG 应用从构建、调试、评测到外部调用的完整闭环。
 
 默认语言是中文；默认模型服务商是千问。
 
-## 你可以用它做什么
+Ragarium 关注的是本地实验闭环：
+
+```text
+导入资料 -> 构建知识库 -> 编排 RAG Workflow -> 自动生成 Query -> 运行评测 -> 暴露 Runtime API
+```
+
+## 核心功能
 
 - 导入自己的资料包：支持 `.txt`、`.md`、`.html`、`.pdf`、`.docx` 和单页 URL。
 - 管理本地知识库 DB：资料会解析、切分成 chunks，并写入本地 Chroma 向量库。
@@ -76,7 +84,7 @@ set API_KEY_QWEN=your-api-key
 ### 3. 启动后端
 
 ```bash
-rag-eval-api
+ragarium-api
 ```
 
 健康检查：
@@ -88,7 +96,7 @@ curl http://127.0.0.1:8000/api/health
 也可以继续直接使用 Uvicorn：
 
 ```bash
-.venv/bin/python -m uvicorn rag_eval.api.app:app --host 127.0.0.1 --port 8000
+.venv/bin/python -m uvicorn ragarium.api.app:app --host 127.0.0.1 --port 8000
 ```
 
 ### 4. 启动前端
@@ -250,15 +258,15 @@ curl -X POST http://127.0.0.1:8000/api/runtime/workflows/1/batch \
 
 这些目录通常属于本地运行产物，不应该提交到 Git。
 
-## 旧脚手架入口
+## 历史命令行入口
 
-如果你只想跑旧的命令行 demo，仍可以使用：
+如果你只想跑早期命令行 demo，仍可以使用：
 
 ```bash
 python quickstart.py
 ```
 
-旧 Streamlit 控制台仍保留：
+历史 Streamlit 控制台仍保留：
 
 ```bash
 streamlit run streamlit_app.py
@@ -274,13 +282,13 @@ http://127.0.0.1:5173/
 
 ```text
 frontend/                 # React + React Flow 产品前端
-rag_eval/api/             # FastAPI HTTP API
-rag_eval/ingestion/       # 文件 / URL 解析、chunk 生成
-rag_eval/workflow/        # Graph 校验与执行
-rag_eval/query_generation.py
-rag_eval/vector/          # Chroma 向量库构建与管理
-rag_eval/eval_engine/     # RAGAS 评测
-rag_eval/storage.py       # SQLite 本地状态库
+ragarium/api/             # FastAPI HTTP API
+ragarium/ingestion/       # 文件 / URL 解析、chunk 生成
+ragarium/workflow/        # Graph 校验与执行
+ragarium/query_generation.py
+ragarium/vector/          # Chroma 向量库构建与管理
+ragarium/eval_engine/     # RAGAS 评测
+ragarium/storage.py       # SQLite 本地状态库
 config/                   # 模型、Provider、chunk、评测配置
 tests/                    # 后端单测与集成测试
 ```
