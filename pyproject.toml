@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ragarium"
 version = "0.4.0"
-description = "Local-first RAG workspace with workflow graphs, automatic query generation, RAGAS evaluation, and HTTP Runtime API."
+description = "Visual local-first RAG workflow studio that generates eval sets, runs RAGAS evals, and deploys workflows as local HTTP APIs."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
@@ -70,9 +70,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/syy12335/rag-eval-scaffold"
-Repository = "https://github.com/syy12335/rag-eval-scaffold"
-Issues = "https://github.com/syy12335/rag-eval-scaffold/issues"
+Homepage = "https://github.com/syy12335/ragarium"
+Repository = "https://github.com/syy12335/ragarium"
+Issues = "https://github.com/syy12335/ragarium/issues"
 
 [project.scripts]
 ragarium-api = "ragarium.api.cli:main"

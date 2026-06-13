@@ -2,22 +2,22 @@
 
 This release renames the project from `rag-eval-scaffold` to **Ragarium** and resets the project positioning around a local-first RAG workspace.
 
-Ragarium is no longer presented as a scaffold. It is a local RAG workspace for building, testing, evaluating, and exposing RAG workflows.
+Ragarium is no longer presented as a scaffold. It is a visual local RAG workflow studio for building, evaluating, and exposing RAG workflows as local HTTP APIs.
 
 ## Highlights
 
-- New product identity: `Ragarium`.
-- New Python package name: `ragarium`.
-- New backend command: `ragarium-api`.
-- Updated README and frontend branding around a local-first RAG workflow.
-- Runtime API metadata now reports `ragarium-runtime`.
+- Visual RAG workflow canvas for composing retrieval, prompt, answer, query generation, and evaluation steps.
+- Automatic query-only evaluation set generation from a selected knowledge base and a few example questions.
+- Built-in RAGAS evaluation runs with per-sample answers, contexts, and metric scores.
+- Local HTTP Runtime API that exposes prepared workflows through `invoke` and `batch`.
+- New product identity, Python package, and backend command: `Ragarium`, `ragarium`, and `ragarium-api`.
 
 ## Workflow
 
 Ragarium focuses on the local loop:
 
 ```text
-Document ingestion -> Knowledge-base indexing -> RAG Workflow -> Query generation -> Evaluation -> Runtime API
+Document ingestion -> Knowledge-base indexing -> Visual RAG Workflow -> Query-set generation -> RAGAS evaluation -> Local HTTP Runtime API
 ```
 
 The evaluation system remains an important part of the product, but it is now presented as part of the complete RAG workflow instead of being the only identity of the project.

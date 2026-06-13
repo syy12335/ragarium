@@ -2,11 +2,18 @@
 
 Ragarium 是一个中文优先、本地优先的 RAG 工作台。
 
-它把资料导入、知识库切分与索引、可视化 Workflow 编排、自动 Query 生成、RAGAS 评测和 HTTP Runtime API 放在同一个本地控制台中，适合快速验证一个 RAG 应用从构建、调试、评测到外部调用的完整闭环。
+它的核心不是“又一个 RAG Demo”，而是把 RAG 从搭建、调试、评测到本地服务化串成一条可操作链路：
+
+- 用可视化画布编排 RAG Workflow。
+- 基于知识库自动生成 query-only 评测集。
+- 直接运行 RAGAS 评测并查看每条样本的回答、上下文和指标。
+- 将准备好的 Workflow 暴露成本地 HTTP Runtime API，外部程序可以直接 `invoke` 或 `batch` 调用。
+
+换句话说，Ragarium 让一个本地 RAG Workflow 可以从“导入资料”走到“可评测、可调用”。
 
 默认语言是中文；默认模型服务商是千问。
 
-Ragarium 关注的是本地实验闭环：
+典型闭环：
 
 ```text
 导入资料 -> 构建知识库 -> 编排 RAG Workflow -> 自动生成 Query -> 运行评测 -> 暴露 Runtime API
